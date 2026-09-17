@@ -1,0 +1,50 @@
+================================================================================
+RECRUITSAGE - PROJECT CONTEXT & DOMAIN OVERVIEW
+================================================================================
+
+1. Background & Problem Statement:
+   - Placement season at Thapar Institute of Engineering & Technology (TIET) 
+     is intense and fast-paced.
+   - Companies open and close applications on short notice on the placement 
+     portal (https://recruit.thapar.edu/).
+   - Students currently undergo a tedious, manual multi-step research process 
+     for every single visiting company:
+     a) Cross-checking Glassdoor & AmbitionBox for real ratings and culture.
+     b) Digging through Reddit (r/developersIndia, r/cscareerquestions) and Blind 
+        for candid employee experiences, delayed onboardings, and PIP culture.
+     c) Scrutinizing the Job Description (JD) to spot hidden traps: 2-3 year bonds, 
+        monetary penalties, inflated CTC (inflated base vs. phantom variable/stocks), 
+        and night shift requirements.
+     d) Frantically asking seniors or searching through scattered Google Sheets / 
+        JSON drives to find out:
+        - Has this company visited Thapar before?
+        - How many rounds were conducted?
+        - What exact Online Assessment (OA), Technical, and HR questions were asked?
+     e) Searching LinkedIn manually to find TIET alumni working in that exact company 
+        for referrals and interview advice.
+
+2. Project Vision:
+   - Build "RecruitSage": a 100% free, local-first Agentic AI placement intelligence 
+     copilot.
+   - Operates directly inside the Thapar placement portal (https://recruit.thapar.edu/) 
+     via a sleek Chrome Extension side-panel.
+   - Automates the extraction of company drive details, matches them against local 
+     campus historical placement data and question banks, launches parallel web 
+     research agents, conducts a 9-point red-flag audit, and generates a structured, 
+     actionable Dossier.
+   - Provides an interactive, real-time AI placement counselor (like ChatGPT) where 
+     students can chat and clarify any company-specific doubts (e.g., "What OS concepts 
+     did they ask last year?", "Is the in-hand salary worth applying for?").
+
+3. Target Environment & Hardware:
+   - Host Machine: Apple Silicon M4 MacBook Air, 16 GB Unified Memory, 512 GB SSD.
+   - Execution Model: Local-first inference via Ollama (e.g., Qwen 2.5 7B / Llama 3.1 8B) 
+     leveraging Apple Metal (MPS) for high tokens/sec and complete privacy.
+   - Zero-Cost Architecture: Free scraping + DuckDuckGo search (zero paid API keys required).
+   - Target Portal: https://recruit.thapar.edu/ (Authenticated student dashboard).
+
+4. Data Assets:
+   - Local Historical Placement Records: JSON dataset containing company names, past visit 
+     years, eligibility cutoffs, CTC offered, and selection numbers.
+   - Local Campus Question Bank: Google Sheet exported to CSV/JSON format containing exact 
+     rounds breakdown, OA questions, technical interview DSA/system design questions, and HR questions.

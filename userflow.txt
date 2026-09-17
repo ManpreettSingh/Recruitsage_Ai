@@ -1,0 +1,50 @@
+================================================================================
+RECRUITSAGE - END-TO-END USER FLOW
+================================================================================
+
+Step 1: Company Discovery on Portal
+   - The student logs in to Thapar placement portal (https://recruit.thapar.edu/).
+   - Navigates to an active company recruitment page or opening notice.
+
+Step 2: Triggering RecruitSage via Chrome Extension
+   - The student clicks the floating "✨ RecruitSage Intel" button on the webpage 
+     (or clicks the extension action icon in the Chrome toolbar).
+   - The extension immediately opens the sleek side-panel drawer over the right side 
+     of the Thapar portal page.
+
+Step 3: Client-Side Page Context Extraction (Scraping)
+   - The extension content script extracts the on-page company drive context:
+     * Company Name
+     * Job Profile / Role
+     * CTC Package & Compensation Structure
+     * Eligibility Criteria (CGPA, branches, year)
+     * Job Description (JD) and scheduled drive dates
+   - Sends this structured payload to the local backend:
+     `POST http://localhost:8000/api/analyze`
+
+Step 4: Real-time Multi-Agent Research Execution
+   - The side-panel displays live visual status indicators as the backend runs:
+     [1/6] 📄 Extracted page context and drive parameters
+     [2/6] 🎓 Matching Thapar historical question bank & previous visit stats
+     [3/6] ⭐ Querying Glassdoor & AmbitionBox employee ratings & culture
+     [4/6] 💬 Mining Reddit (r/developersIndia) & Blind community discussions
+     [5/6] 🚩 Executing 9-point Red-Flag and CTC trap audit
+     [6/6] 📊 Synthesizing final Placement Intelligence Dossier via Ollama
+
+Step 5: Structured Dossier Presentation
+   - The side-panel renders the comprehensive company dossier:
+     * Fit & Risk Verdict (Green / Amber / Red banner)
+     * Compensation Breakdown (Base vs Variable vs Bond traps)
+     * 9-Point Red-Flag Alerts
+     * Thapar Historical Intelligence (Past visits, rounds, exact past questions)
+     * Culture & Work-Life Balance Highlights
+     * LinkedIn Alumni Connect (1-click direct search links to TIET alumni)
+     * 48-Hour Prep Checklist (Key DSA topics, core CS subjects)
+
+Step 6: Interactive Placement Doubt-Solver (ChatGPT-style Chat)
+   - At the bottom of the dossier, the student can chat with RecruitSage:
+     * "What type of graph/tree questions did they ask in the 2023 technical round?"
+     * "Are they strict with the 7.5 CGPA cutoff?"
+     * "Is the ₹14 LPA CTC mostly base salary or non-guaranteed bonuses?"
+   - The AI streams real-time answers based on the company's full dossier, 
+     historical questions, and web intelligence.

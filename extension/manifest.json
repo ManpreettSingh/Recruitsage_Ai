@@ -1,0 +1,50 @@
+{
+  "manifest_version": 3,
+  "name": "RecruitSage - Placement Intelligence Copilot",
+  "version": "1.0.1",
+  "description": "Agentic Placement Copilot for Thapar Institute (TIET). Automated web research, red-flag auditing, campus question bank matching, and doubt-solving.",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://recruit.thapar.edu/*",
+    "https://*.thapar.edu/*",
+    "http://localhost:8000/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open RecruitSage Side Panel",
+    "default_icon": {
+      "16": "icons/recruitsage_icon16.png",
+      "48": "icons/recruitsage_icon48.png",
+      "128": "icons/recruitsage_icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/recruitsage_icon16.png",
+    "48": "icons/recruitsage_icon48.png",
+    "128": "icons/recruitsage_icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://recruit.thapar.edu/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*"],
+      "matches": ["https://recruit.thapar.edu/*"]
+    }
+  ]
+}

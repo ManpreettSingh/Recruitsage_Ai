@@ -1,0 +1,93 @@
+================================================================================
+RECRUITSAGE - FUNCTIONAL REQUIREMENTS SPECIFICATION (FRS)
+================================================================================
+
+1. CHROME EXTENSION (CLIENT-SIDE)
+   1.1 Floating Trigger Button:
+       - Injects a floating action button ("✨ RecruitSage Intel") into company 
+         details pages on https://recruit.thapar.edu/.
+       - Non-intrusive, draggable or docked to the right edge of the viewport.
+   1.2 Automated DOM Scraper:
+       - On trigger click, extracts:
+         * Company Name & Hiring Profile/Role Title
+         * Compensation & Breakdown (CTC, Base, Stipend, Bond/Service Agreement)
+         * Eligibility Criteria (CGPA cutoff, allowed branches, backlog criteria)
+         * Full Job Description (JD) and role requirements
+         * Important drive schedules/dates
+   1.3 Interactive Side-Panel / Floating Drawer:
+       - Displays a slide-over panel on the right side of the active browser tab.
+       - Real-time Pipeline Progress Tracker:
+         * Stage 1: "Scraping page context..."
+         * Stage 2: "Matching Thapar historical question bank..."
+         * Stage 3: "Querying Glassdoor & AmbitionBox reviews..."
+         * Stage 4: "Analyzing Reddit & developer sentiment..."
+         * Stage 5: "Auditing 9-point red flags & CTC traps..."
+         * Stage 6: "Synthesizing Placement Dossier..."
+   1.4 Structured Dossier Presentation:
+       - Renders tabbed/card views:
+         * Overview & Fit Scorecard
+         * Compensation Reality (In-Hand vs CTC, hidden deductions)
+         * Red Flag Alerts (High-visibility warning banners)
+         * Campus Historical Intel (Past visit years, shortlist ratios, exact interview questions)
+         * Culture & Employee Reviews (Glassdoor/AmbitionBox/Reddit highlights)
+         * Alumni Connect (Direct 1-click LinkedIn search links for TIET seniors)
+         * 48-Hour Prep Guide (Priority DSA topics, core CS subjects, HR tips)
+   1.5 Interactive Doubt-Solving Chat Interface:
+       - In-panel conversational chat widget allowing the student to ask free-form 
+         follow-up questions (e.g. "Does this company ask Dynamic Programming in OA?", 
+         "What is the work-life balance for freshers?", "Should I apply if my CGPA is 7.8?").
+       - Streaming response tokens for smooth real-time reading.
+
+2. LOCAL BACKEND & MULTI-AGENT PIPELINE (FASTAPI + PYTHON)
+   2.1 Architecture Choice: Option A (Lean Asynchronous Task-Graph):
+       - High-speed concurrent Python orchestrator running via asyncio.gather().
+       - 4 Lightweight Worker Agents execute in parallel (< 4 seconds total data gathering):
+         * Worker 1 (Campus Intel): RapidFuzz + vector matcher on Thapar JSON & CSV.
+         * Worker 2 (Reddit & Community Sentiment): Free DuckDuckGo search over r/developersIndia & Blind.
+         * Worker 3 (Glassdoor & AmbitionBox): Free DuckDuckGo search over review domains.
+         * Worker 4 (Alumni Dork Generator): Generates precision LinkedIn search dorks for TIET seniors.
+       - Central Synthesis & Auditor Agent (Ollama: qwen2.5:7b):
+         * Consolidates the aggregated context.
+         * Audits the 9-point red flags and CTC breakdown.
+         * Produces the validated final Dossier in strict JSON format.
+         * End-to-end target time: ~10–15 seconds total on M4 Mac.
+   2.2 Campus Knowledge & Question Bank Engine:
+       - Loads historical campus placement JSON and exported question bank CSV/JSON.
+       - Entity Normalization: Maps variations (e.g., "DE Shaw India Software", "D.E. Shaw", 
+         "DE Shaw") using semantic embeddings (sentence-transformers / Ollama embeddings) 
+         combined with fuzzy matching (RapidFuzz).
+       - Context Retrieval: Surfaces exact past questions (DSA, System Design, OS/DBMS, HR) 
+         and historical selection statistics for the matched company.
+   2.3 Web Research Agents (DuckDuckGo + Targeted Scrapers):
+       - Culture & Review Agent:
+         * Queries DuckDuckGo for `site:glassdoor.co.in/Reviews "[Company]" "[Role]"` 
+           and `site:ambitionbox.com/reviews "[Company]"`.
+         * Extracts rating metrics (work-life balance, job security, salary satisfaction).
+       - Reddit & Community Sentiment Agent:
+         * Queries DuckDuckGo for `site:reddit.com/r/developersIndia "[Company]"`, 
+           `site:reddit.com/r/cscareerquestions "[Company]"`, and Blind discussions.
+         * Extracts candid fresher feedback: project allocations, work pressure, appraisal reality.
+       - Alumni & Network Agent:
+         * Formulates smart Google Dorks:
+           `site:linkedin.com/in ("Thapar" OR "TIET" OR "Thapar Institute") "[Company]"`
+           `site:linkedin.com/in ("Thapar" OR "TIET") "[Company]" "[Role]"`
+         * Returns ready-to-click URLs directly to active Thapar alumni profiles.
+   2.4 The 9-Point Red-Flag Audit Engine:
+       - Evaluates company JD and web intel against an exhaustive 9-point checklist:
+         1. Service Bonds & Monetary Penalties (1-3 yr bonds, deposit demands).
+         2. CTC Inflation & Phantom Pay (low base, deferred bonuses, 4-yr stock cliffs).
+         3. Delayed Joining / Offer Revocation history.
+         4. Probation Traps & Aggressive PIP (Performance Improvement Plan) culture.
+         5. Role Bait-and-Switch (hired as SDE -> assigned to L1/L2 Support or manual QA).
+         6. Toxic Management & Unpaid Overtime / Weekend shifts.
+         7. Mandatory Rotational / Night Shifts (US/UK shifts for freshers).
+         8. Mass Layoffs, Hiring Freezes, or Financial Instability.
+         9. Tech Stack Stagnation (internal proprietary tools, dead-end technologies).
+   2.5 Dossier Synthesis Engine:
+       - Uses local Ollama model (Qwen 2.5 7B / Llama 3.1 8B) to structure findings 
+         into a unified JSON schema.
+       - Assigns a calculated "Fit & Risk Score" (e.g., Green Flag / Amber Caution / Red Flag).
+   2.6 Conversational RAG & Doubt-Solver:
+       - Maintains conversation state in-memory per company session.
+       - Uses RAG over the aggregated dossier, JD, campus question bank, and web snippets 
+         to answer student queries with precise citations.

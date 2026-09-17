@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RecruitSage</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Bar -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <img src="../icons/recruitsage_icon48.png" alt="RecruitSage" class="brand-logo-img">
+        <span class="brand-name">RecruitSage</span>
+        <span class="brand-tag">TIET</span>
+      </div>
+      <div class="nav-actions">
+        <div class="status-indicator" id="status-container" title="System Status">
+          <span class="status-dot" id="system-dot"></span>
+          <span class="status-label" id="system-label">Connecting</span>
+        </div>
+        <button id="btn-theme-toggle" class="btn-theme-toggle" title="Switch to Light Mode" aria-label="Toggle Light / Dark Mode">
+          <svg class="theme-icon-sun" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          <svg class="theme-icon-moon rs-hidden" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Context & Query Bar -->
+    <section class="context-panel">
+      <div class="panel-header">
+        <div class="panel-header-left">
+          <span class="panel-caption">Placement Drive Target</span>
+          <span id="ai-extract-badge" class="badge-ai rs-hidden">AI Parsed</span>
+        </div>
+        <button id="btn-sync-page" class="btn-micro" title="Synchronize details from active tab">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          Sync Page
+        </button>
+      </div>
+
+      <div class="input-stack">
+        <div class="input-field">
+          <label for="input-company">Company</label>
+          <input type="text" id="input-company" placeholder="e.g. Optum, D. E. Shaw, JPMorgan, Marquardt..." autocomplete="off" spellcheck="false">
+        </div>
+        <div class="input-row">
+          <div class="input-field">
+            <label for="input-role">Profile / Role</label>
+            <input type="text" id="input-role" placeholder="e.g. Graduate Trainee / SDE" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="input-field">
+            <label for="input-ctc">Stated CTC</label>
+            <input type="text" id="input-ctc" placeholder="e.g. 6.50 - 7.50 LPA" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+
+        <div class="input-row-3">
+          <div class="input-field">
+            <label for="input-location">Location</label>
+            <input type="text" id="input-location" placeholder="e.g. Pune" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="input-field">
+            <label for="input-job-type">Job Type</label>
+            <input type="text" id="input-job-type" placeholder="Full Time" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="input-field">
+            <label for="input-deadline">Deadline</label>
+            <input type="text" id="input-deadline" placeholder="e.g. 28 Sep" autocomplete="off" spellcheck="false">
+          </div>
+        </div>
+
+        <div class="input-field input-field-highlight">
+          <label for="input-probation">
+            <span>Probation / Bond / Service Terms</span>
+            <span class="label-tag">Red Flag Audit</span>
+          </label>
+          <input type="text" id="input-probation" placeholder="e.g. 1-year probation with review / 2-year bond" autocomplete="off" spellcheck="false">
+        </div>
+
+        <div class="input-field">
+          <label for="input-eligibility">Eligibility & Branches Allowed</label>
+          <input type="text" id="input-eligibility" placeholder="e.g. B.Tech / M.Tech (COE, ECE, CSED), Min 60%" autocomplete="off" spellcheck="false">
+        </div>
+
+        <div class="input-field">
+          <label for="input-skills">Key Technical Skills / Tech Stack</label>
+          <input type="text" id="input-skills" placeholder="e.g. Network Security, Python, ISO 27001, Linux" autocomplete="off" spellcheck="false">
+        </div>
+
+        <div class="collapsible-section">
+          <button id="btn-toggle-jd" type="button" class="btn-link">
+            <span id="toggle-jd-icon">▸</span> View Full Notice & Duties
+          </button>
+          <div id="jd-drawer" class="rs-hidden">
+            <textarea id="input-jd" rows="3" placeholder="Full job description text or drive notes..." autocomplete="off" spellcheck="false"></textarea>
+          </div>
+        </div>
+
+        <!-- Auto-detected Portal PDFs / Documents Badge & Quick Ingestion -->
+        <div id="detected-docs-container" class="detected-docs-card" style="display:none; margin-top: 6px;">
+          <div class="detected-docs-header">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="detected-docs-icon">📄</span>
+              <span class="detected-docs-title">Detected Portal Documents</span>
+            </div>
+            <span id="detected-docs-count" class="badge-mini">0 Found</span>
+          </div>
+          <p class="detected-docs-subtext">Attached JD / Salary Breakdown PDFs found on this drive notice. Click to ingest:</p>
+          <div id="detected-docs-list" class="detected-docs-chips"></div>
+        </div>
+
+        <!-- Additional Context & PDF Attachment Section -->
+        <div class="collapsible-section" style="margin-top: 6px;">
+          <button id="btn-toggle-extra-ctx" type="button" class="btn-link" style="color: var(--accent-blue);">
+            <span id="toggle-extra-icon">▸</span> Attach PDF Notice or Custom Notes (Optional)
+          </button>
+          
+          <div id="extra-ctx-drawer" class="rs-hidden" style="margin-top: 8px;">
+            <!-- PDF Upload Zone -->
+            <div class="pdf-upload-container">
+              <input type="file" id="input-pdf-file" accept="application/pdf" style="display:none;">
+              
+              <div id="pdf-dropzone" class="pdf-dropzone">
+                <div class="pdf-drop-icon">📄</div>
+                <div class="pdf-drop-text">
+                  <span style="font-weight:600; color:var(--text-primary); font-size:11.5px;">Attach Placement PDF / Offer Letter</span>
+                  <span style="font-size:10px; color:var(--text-muted);">Click to browse or drag & drop (up to 25MB)</span>
+                </div>
+              </div>
+
+              <!-- Uploaded PDF Status Badge -->
+              <div id="pdf-status-badge" class="pdf-status-card" style="display:none; margin-top:6px;">
+                <div class="pdf-badge-left">
+                  <span class="pdf-badge-icon">📄</span>
+                  <div class="pdf-badge-info">
+                    <span id="pdf-filename" class="pdf-filename">Notice.pdf</span>
+                    <span id="pdf-meta" class="pdf-meta">Analyzing...</span>
+                  </div>
+                </div>
+                <button type="button" id="btn-remove-pdf" class="btn-icon" title="Remove PDF">✕</button>
+              </div>
+
+              <!-- Auto-parse checkbox -->
+              <div style="display:flex; align-items:center; gap:6px; margin-top:7px; margin-bottom:8px;">
+                <input type="checkbox" id="chk-auto-parse-pdf" checked style="accent-color:var(--accent-blue); cursor:pointer;">
+                <label for="chk-auto-parse-pdf" style="font-size:10.5px; color:var(--text-secondary); cursor:pointer; margin:0;">
+                  Auto-fill drive fields with Local AI (Ollama)
+                </label>
+              </div>
+            </div>
+
+            <!-- Additional Notes / Text Context -->
+            <div class="input-field" style="margin-top:6px;">
+              <label for="input-additional-notes">Additional Notes / WhatsApp / Email Context</label>
+              <textarea id="input-additional-notes" rows="2" placeholder="Paste WhatsApp notice, recruiter email clauses, senior advice, or special criteria..." autocomplete="off" spellcheck="false"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button id="btn-analyze" class="btn-primary">
+        <span class="btn-text">Run Intelligence Audit</span>
+        <span class="btn-shortcut">⌘↵</span>
+      </button>
+    </section>
+
+    <!-- Progress State -->
+    <div id="progress-container" class="progress-panel rs-hidden">
+      <div class="progress-bar-container">
+        <div class="progress-bar-indeterminate"></div>
+      </div>
+      <div class="progress-info">
+        <span class="progress-status" id="progress-status-title">Gathering intelligence...</span>
+        <span class="progress-counter" id="progress-step-counter">Step 1 of 6</span>
+      </div>
+      <div class="stepper-list">
+        <div class="stepper-item is-active" id="step-1">
+          <span class="step-num">01</span>
+          <span class="step-label">Extract Portal Context</span>
+        </div>
+        <div class="stepper-item" id="step-2">
+          <span class="step-num">02</span>
+          <span class="step-label">Query Campus Historical DB</span>
+        </div>
+        <div class="stepper-item" id="step-3">
+          <span class="step-num">03</span>
+          <span class="step-label">Mine Developer Discussions</span>
+        </div>
+        <div class="stepper-item" id="step-4">
+          <span class="step-num">04</span>
+          <span class="step-label">Aggregate Verified Reviews</span>
+        </div>
+        <div class="stepper-item" id="step-5">
+          <span class="step-num">05</span>
+          <span class="step-label">Audit 9-Point Red Flags</span>
+        </div>
+        <div class="stepper-item" id="step-6">
+          <span class="step-num">06</span>
+          <span class="step-label">Synthesize Briefing Dossier</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error Notice -->
+    <div id="error-banner" class="notice-banner notice-error rs-hidden"></div>
+
+    <!-- Main Content Area (Dossier View) -->
+    <main id="dossier-container" class="dossier-shell rs-hidden">
+      <!-- Executive Summary -->
+      <section class="summary-hero" id="verdict-card">
+        <div class="hero-header">
+          <span class="tag-fit" id="fit-badge">High Fit</span>
+          <span class="tag-meta" id="sources-count">13 sources</span>
+        </div>
+        <p class="hero-verdict" id="verdict-summary"></p>
+      </section>
+
+      <!-- AI Audit Quality & Evaluation Metrics Card -->
+      <section class="eval-card" id="evaluation-card" style="display:none; margin-bottom: 12px;">
+        <div class="eval-header">
+          <div class="eval-title-wrap">
+            <span class="eval-title">Agentic Audit Quality</span>
+            <span id="eval-grade-badge" class="eval-badge">Grade A+ (90%)</span>
+          </div>
+          <span id="eval-overall-score" class="eval-score-text">Verified</span>
+        </div>
+        <p class="eval-verdict-text" id="eval-verdict-summary"></p>
+        <div class="eval-metrics-grid" id="eval-metrics-grid"></div>
+        <div id="eval-notes-container" class="eval-notes-box" style="display:none;">
+          <div class="eval-notes-title">💡 Auditor Verification Notes:</div>
+          <ul id="eval-notes-list" class="eval-notes-list"></ul>
+        </div>
+      </section>
+
+      <!-- Segmented Navigation Bar -->
+      <nav class="segmented-control" role="tablist">
+        <button class="segment-btn is-active" data-tab="tab-redflags">Red Flags</button>
+        <button class="segment-btn" data-tab="tab-compensation">Comp</button>
+        <button class="segment-btn" data-tab="tab-campus">Campus Intel</button>
+        <button class="segment-btn" data-tab="tab-culture">Reviews</button>
+        <button class="segment-btn" data-tab="tab-alumni">Alumni</button>
+        <button class="segment-btn" data-tab="tab-prep">Prep</button>
+        <button class="segment-btn" data-tab="tab-chat">Doubt Solver</button>
+      </nav>
+
+      <!-- Panes -->
+      <div class="tab-content">
+        <!-- 1. Red Flags -->
+        <div class="tab-pane is-active" id="tab-redflags">
+          <div class="pane-caption">9-Point Risk & Trap Audit</div>
+          <div id="redflags-list" class="item-stack"></div>
+        </div>
+
+        <!-- 2. Compensation -->
+        <div class="tab-pane" id="tab-compensation">
+          <div class="pane-caption">Compensation & In-Hand Analysis</div>
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <span class="metric-label">Stated CTC</span>
+              <span class="metric-val" id="comp-ctc">-</span>
+            </div>
+            <div class="metric-card metric-card-highlight">
+              <span class="metric-label">Est. In-Hand (Mo)</span>
+              <span class="metric-val metric-val-green" id="comp-inhand">-</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Base Salary</span>
+              <span class="metric-val" id="comp-base">-</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Variable / Stock</span>
+              <span class="metric-val" id="comp-variable">-</span>
+            </div>
+          </div>
+
+          <div class="info-group">
+            <div class="group-title">Service Agreement & Bonds</div>
+            <div class="group-content" id="comp-bond">None detected</div>
+          </div>
+
+          <div class="info-group">
+            <div class="group-title">Deductions & Retentions</div>
+            <ul class="data-list" id="comp-traps-list"></ul>
+          </div>
+        </div>
+
+        <!-- 3. Campus Intel -->
+        <div class="tab-pane" id="tab-campus">
+          <div class="pane-caption">Thapar Institute Placement History</div>
+          <div id="campus-status-banner" class="status-callout"></div>
+          <div id="campus-visits-container" class="item-stack"></div>
+          
+          <!-- Master DB Company Topic Breakdown -->
+          <div id="campus-topic-card" class="stack-card rs-mt-16" style="display:none; padding:12px 14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span class="pane-caption" style="margin:0; font-size:11px; text-transform:uppercase; letter-spacing:0.04em;">Placement Master DB Topic Breakdown</span>
+              <span id="campus-topic-diff" class="question-diff diff-medium">Medium</span>
+            </div>
+            <div id="campus-topic-pills" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;"></div>
+            <div id="campus-topic-summary" style="font-size:11px; color:var(--text-muted); line-height:1.4;"></div>
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; margin-bottom:6px;">
+            <div class="pane-caption" style="margin:0;">Placement Master DB: Real Questions</div>
+            <span id="campus-questions-count" style="font-size:10.5px; font-weight:600; color:var(--accent-blue);"></span>
+          </div>
+          <div id="campus-questions-list" class="item-stack"></div>
+        </div>
+
+        <!-- 4. Culture -->
+        <div class="tab-pane" id="tab-culture">
+          <div class="pane-caption">Work Culture & Employee Sentiment</div>
+          <div class="sentiment-card">
+            <div class="sentiment-row">
+              <span class="sentiment-label">Aggregated Rating</span>
+              <span class="sentiment-score" id="culture-rating">3.8 / 5.0</span>
+            </div>
+            <div class="sentiment-block">
+              <span class="block-label">Work-Life Balance</span>
+              <p id="culture-wlb" class="block-text">-</p>
+            </div>
+            <div class="sentiment-block" id="culture-salary-block" style="display:none;">
+              <span class="block-label">Salary Hikes & Appraisal Velocity</span>
+              <p id="culture-salary" class="block-text">-</p>
+            </div>
+            <div class="sentiment-block">
+              <span class="block-label">Tech Community Consensus (Reddit / Blind)</span>
+              <p id="culture-reddit" class="block-text">-</p>
+            </div>
+          </div>
+
+          <div class="pros-cons-grid">
+            <div class="aspect-panel aspect-positive">
+              <div class="aspect-title">Pros & Strengths</div>
+              <ul class="data-list" id="culture-pros"></ul>
+            </div>
+            <div class="aspect-panel aspect-negative">
+              <div class="aspect-title">Cons & Caveats</div>
+              <ul class="data-list" id="culture-cons"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5. Alumni Links -->
+        <div class="tab-pane" id="tab-alumni">
+          <div class="pane-caption">Verified TIET Alumni at Target Firm</div>
+          <p class="pane-helper">Direct profile links to Thapar seniors currently or previously in engineering and product roles:</p>
+          <div id="alumni-links-list" class="alumni-stack"></div>
+        </div>
+
+        <!-- 6. Prep Guide -->
+        <div class="tab-pane" id="tab-prep">
+          <div class="pane-caption">Targeted Data-Grounded Preparation Intelligence</div>
+          
+          <!-- Cross-Campus Recruitment Insights Alert -->
+          <div id="prep-campus-alert" class="prep-alert-banner" style="display:none; margin-bottom: 12px;">
+            <div class="prep-alert-header">
+              <span class="prep-alert-icon">⚡</span>
+              <span class="prep-alert-title">Cross-Campus Drive Intelligence</span>
+            </div>
+            <p id="prep-cross-campus-text" class="prep-alert-text">Analyzing previous recruitment drives across Thapar, DTU, NSUT, and NIT campuses...</p>
+          </div>
+
+          <!-- 1. Topic Weight Distribution Matrix -->
+          <div class="info-group">
+            <div class="group-title-row">
+              <span class="group-title">High-Yield Topic Weight Matrix</span>
+              <span class="group-title-tag">Placement Master DB</span>
+            </div>
+            <div id="prep-topic-matrix-stack" class="prep-matrix-stack"></div>
+          </div>
+
+          <!-- 2. Concrete Coding Problem Archetypes -->
+          <div class="info-group">
+            <div class="group-title-row">
+              <span class="group-title">Concrete Problem Archetypes & Coding Patterns</span>
+              <span class="group-title-tag">Targeted LeetCode / GFG</span>
+            </div>
+            <div id="prep-archetypes-stack" class="prep-archetypes-stack"></div>
+          </div>
+
+          <!-- 3. Core CS Technical Deep Dive -->
+          <div class="info-group">
+            <div class="group-title-row">
+              <span class="group-title">Core CS Subject Checklist (OS, DBMS, CN, OOPS)</span>
+              <span class="group-title-tag">High-Yield Questions</span>
+            </div>
+            <div id="prep-core-cs-stack" class="prep-core-cs-stack"></div>
+          </div>
+
+          <!-- 4. Round-by-Round Strategy & Traps -->
+          <div class="info-group">
+            <div class="group-title-row">
+              <span class="group-title">Round-by-Round Strategy & Dry-Run Defense</span>
+              <span class="group-title-tag">OA -> Tech 1 -> Tech 2 -> HR</span>
+            </div>
+            <div id="prep-round-tactics-stack" class="prep-tactics-stack"></div>
+          </div>
+
+          <!-- Legacy fallback container (hidden when structured cards render) -->
+          <div id="prep-legacy-container" style="display:none;">
+            <ul class="data-list" id="prep-topics"></ul>
+            <ul class="data-list" id="prep-questions"></ul>
+            <ul class="data-list" id="prep-tips"></ul>
+          </div>
+        </div>
+
+        <!-- 7. Doubt Solver (Chat) -->
+        <div class="tab-pane" id="tab-chat">
+          <div class="pane-caption">Placement Mentor Chat</div>
+          <div class="query-chips">
+            <button class="chip" data-q="What DSA topics were asked at Thapar previously?">DSA Topics</button>
+            <button class="chip" data-q="Is there any bond or service agreement?">Bond Check</button>
+            <button class="chip" data-q="What is the realistic take-home monthly salary?">In-Hand Salary</button>
+            <button class="chip" data-q="What is the work-life balance for campus hires?">Freshers WLB</button>
+          </div>
+          <div id="chat-messages" class="chat-viewport">
+            <div class="chat-bubble chat-assistant">
+              Hello. I have indexed the verified Thapar campus records, compensation details, and community reviews for this drive. What specific questions or doubts can I clarify?
+            </div>
+          </div>
+          <div class="chat-compose">
+            <textarea id="chat-input" rows="1" placeholder="Ask any question about this drive..."></textarea>
+            <button id="btn-chat-send" class="btn-send" title="Send (Enter)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/mermaid.min.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>
