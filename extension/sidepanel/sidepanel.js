@@ -1,4 +1,4 @@
-// RecruitSage Side Panel Controller - Professional Grade
+// Recruit Copilot Side Panel Controller - Professional Grade
 
 const BACKEND_URL = "http://localhost:8000";
 
@@ -7,16 +7,52 @@ let chatHistory = [];
 let currentRawPageText = "";
 let attachedPdfText = "";
 let attachedPdfFilename = "";
+let currentProvider = "gemini"; // "gemini" or "ollama"
 
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
+  initProviderSelection();
   initMarkdownAndMermaid();
   initHealthChecks();
   initAutoSync();
   initEventListeners();
+  renderAlumniSection();
 });
 
-// Theme Management Engine (Official RecruitSage Dark / Light Modes)
+// Hybrid LLM Provider Management Engine (Gemini vs Ollama)
+function initProviderSelection() {
+  chrome.storage.local.get(["recruitcopilot_provider", "recruitsage_provider"], (result) => {
+    const saved = (result && (result.recruitcopilot_provider || result.recruitsage_provider)) ? (result.recruitcopilot_provider || result.recruitsage_provider) : "gemini";
+    setProvider(saved, false);
+  });
+}
+
+function setProvider(provider, save = true) {
+  currentProvider = provider === "ollama" ? "ollama" : "gemini";
+  const geminiBtn = document.getElementById("btn-model-gemini");
+  const ollamaBtn = document.getElementById("btn-model-ollama");
+
+  if (geminiBtn && ollamaBtn) {
+    if (currentProvider === "gemini") {
+      geminiBtn.classList.add("active");
+      geminiBtn.setAttribute("aria-checked", "true");
+      ollamaBtn.classList.remove("active");
+      ollamaBtn.setAttribute("aria-checked", "false");
+    } else {
+      ollamaBtn.classList.add("active");
+      ollamaBtn.setAttribute("aria-checked", "true");
+      geminiBtn.classList.remove("active");
+      geminiBtn.setAttribute("aria-checked", "false");
+    }
+  }
+
+  if (save) {
+    chrome.storage.local.set({ recruitcopilot_provider: currentProvider });
+    console.log(`[Recruit Copilot] Active LLM provider set to: ${currentProvider}`);
+  }
+}
+
+// Theme Management Engine (Official Recruit Copilot Dark / Light Modes)
 function initTheme() {
   chrome.storage.local.get(["recruitsage_theme"], (result) => {
     const savedTheme = (result && result.recruitsage_theme) ? result.recruitsage_theme : "dark";
@@ -24,12 +60,234 @@ function initTheme() {
   });
 }
 
-function toggleTheme() {
+// Helper for polygon clip-path collapse
+function polygonCollapsed(point, vertexCount) {
+  const pairs = Array.from({ length: vertexCount }, () => point).join(", ");
+  return `polygon(${pairs})`;
+}
+
+// Percentage coordinate calculations for View Transitions API to avoid display scaling bugs
+function getThemeTransitionClipPaths(
+  variant,
+  cx,
+  cy,
+  maxRadius,
+  viewportWidth,
+  viewportHeight
+) {
+  const toX = (x) => `${(x / viewportWidth) * 100}%`;
+  const toY = (y) => `${(y / viewportHeight) * 100}%`;
+  const point = (x, y) => `${toX(x)} ${toY(y)}`;
+  const toRadius = (r) =>
+    `${(r / (Math.hypot(viewportWidth, viewportHeight) / Math.SQRT2)) * 100}%`;
+
+  switch (variant) {
+    case "circle":
+      return [
+        `circle(0% at ${point(cx, cy)})`,
+        `circle(${toRadius(maxRadius)} at ${point(cx, cy)})`,
+      ];
+    case "square": {
+      const halfW = Math.max(cx, viewportWidth - cx);
+      const halfH = Math.max(cy, viewportHeight - cy);
+      const halfSide = Math.max(halfW, halfH) * 1.05;
+      const end = [
+        point(cx - halfSide, cy - halfSide),
+        point(cx + halfSide, cy - halfSide),
+        point(cx + halfSide, cy + halfSide),
+        point(cx - halfSide, cy + halfSide),
+      ].join(", ");
+      return [polygonCollapsed(point(cx, cy), 4), `polygon(${end})`];
+    }
+    case "triangle": {
+      const scale = maxRadius * 2.2;
+      const dx = (Math.sqrt(3) / 2) * scale;
+      const verts = [
+        point(cx, cy - scale),
+        point(cx + dx, cy + 0.5 * scale),
+        point(cx - dx, cy + 0.5 * scale),
+      ].join(", ");
+      return [polygonCollapsed(point(cx, cy), 3), `polygon(${verts})`];
+    }
+    case "diamond": {
+      const R = maxRadius * Math.SQRT2;
+      const end = [
+        point(cx, cy - R),
+        point(cx + R, cy),
+        point(cx, cy + R),
+        point(cx - R, cy),
+      ].join(", ");
+      return [polygonCollapsed(point(cx, cy), 4), `polygon(${end})`];
+    }
+    case "hexagon": {
+      const R = maxRadius * Math.SQRT2;
+      const verts = [];
+      for (let i = 0; i < 6; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / 3;
+        verts.push(point(cx + R * Math.cos(a), cy + R * Math.sin(a)));
+      }
+      return [
+        polygonCollapsed(point(cx, cy), 6),
+        `polygon(${verts.join(", ")})`,
+      ];
+    }
+    case "rectangle": {
+      const halfW = Math.max(cx, viewportWidth - cx);
+      const halfH = Math.max(cy, viewportHeight - cy);
+      const end = [
+        point(cx - halfW, cy - halfH),
+        point(cx + halfW, cy - halfH),
+        point(cx + halfW, cy + halfH),
+        point(cx - halfW, cy + halfH),
+      ].join(", ");
+      return [polygonCollapsed(point(cx, cy), 4), `polygon(${end})`];
+    }
+    case "star": {
+      const R = maxRadius * Math.SQRT2 * 1.03;
+      const innerRatio = 0.42;
+      const starPolygon = (radius) => {
+        const verts = [];
+        for (let i = 0; i < 5; i++) {
+          const outerA = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+          verts.push(
+            point(
+              cx + radius * Math.cos(outerA),
+              cy + radius * Math.sin(outerA)
+            )
+          );
+          const innerA = outerA + Math.PI / 5;
+          verts.push(
+            point(
+              cx + radius * innerRatio * Math.cos(innerA),
+              cy + radius * innerRatio * Math.sin(innerA)
+            )
+          );
+        }
+        return `polygon(${verts.join(", ")})`;
+      };
+      const startR = Math.max(2, R * 0.025);
+      return [starPolygon(startR), starPolygon(R)];
+    }
+    default:
+      return [
+        `circle(0% at ${point(cx, cy)})`,
+        `circle(${toRadius(maxRadius)} at ${point(cx, cy)})`,
+      ];
+  }
+}
+
+let isThemeTransitioning = false;
+let activeThemeAnimation = null;
+
+function toggleTheme(event) {
   const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
   const newTheme = currentTheme === "light" ? "dark" : "light";
-  applyTheme(newTheme, true);
-  chrome.storage.local.set({ recruitsage_theme: newTheme });
+
+  const button = document.getElementById("btn-theme-toggle");
+  if (
+    isThemeTransitioning ||
+    document.documentElement.dataset.magicuiThemeVt === "active"
+  ) {
+    return;
+  }
+
+  const applyThemeUpdate = () => {
+    applyTheme(newTheme, true);
+    chrome.storage.local.set({ recruitsage_theme: newTheme });
+  };
+
+  // Graceful fallback if View Transitions API is not supported or reduced motion is set
+  if (
+    typeof document.startViewTransition !== "function" ||
+    (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+  ) {
+    applyThemeUpdate();
+    return;
+  }
+
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+
+  let x = viewportWidth - 30;
+  let y = 30;
+
+  if (button) {
+    const { top, left, width, height } = button.getBoundingClientRect();
+    x = left + width / 2;
+    y = top + height / 2;
+  } else if (event && typeof event.clientX === "number") {
+    x = event.clientX;
+    y = event.clientY;
+  }
+
+  const maxRadius = Math.hypot(
+    Math.max(x, viewportWidth - x),
+    Math.max(y, viewportHeight - y)
+  );
+
+  const duration = 450;
+  const shape = "circle";
+
+  const clipPath = getThemeTransitionClipPaths(
+    shape,
+    x,
+    y,
+    maxRadius,
+    viewportWidth,
+    viewportHeight
+  );
+
+  const root = document.documentElement;
+  root.dataset.magicuiThemeVt = "active";
+  root.style.setProperty("--magicui-theme-toggle-vt-duration", `${duration}ms`);
+  root.style.setProperty("--magicui-theme-vt-clip-from", clipPath[0]);
+
+  const cancelAnim = () => {
+    if (activeThemeAnimation) {
+      activeThemeAnimation.cancel();
+      activeThemeAnimation = null;
+    }
+  };
+
+  const cleanup = () => {
+    isThemeTransitioning = false;
+    delete root.dataset.magicuiThemeVt;
+    root.style.removeProperty("--magicui-theme-toggle-vt-duration");
+    root.style.removeProperty("--magicui-theme-vt-clip-from");
+    cancelAnim();
+  };
+
+  isThemeTransitioning = true;
+  const transition = document.startViewTransition(() => {
+    applyThemeUpdate();
+  });
+
+  if (transition && transition.finished && typeof transition.finished.finally === "function") {
+    transition.finished.finally(cleanup).catch(() => {});
+  } else {
+    cleanup();
+  }
+
+  if (transition && transition.ready && typeof transition.ready.then === "function") {
+    transition.ready
+      .then(() => {
+        const anim = document.documentElement.animate(
+          {
+            clipPath: clipPath,
+          },
+          {
+            duration: duration,
+            easing: shape === "star" ? "linear" : "ease-in-out",
+            fill: "forwards",
+            pseudoElement: "::view-transition-new(root)",
+          }
+        );
+        activeThemeAnimation = anim;
+      })
+      .catch(() => {});
+  }
 }
+
 
 function applyTheme(theme, recompileDiagrams = true) {
   document.documentElement.setAttribute("data-theme", theme);
@@ -117,11 +375,44 @@ async function recompileAllMermaidDiagrams() {
 }
 
 function initMarkdownAndMermaid() {
-  if (typeof marked !== "undefined" && marked.setOptions) {
-    marked.setOptions({
-      gfm: true,
-      breaks: true
-    });
+  if (typeof marked !== "undefined") {
+    try {
+      const renderer = new marked.Renderer();
+      renderer.link = function(tokenOrHref, title, text) {
+        let href = "";
+        let linkTitle = "";
+        let linkText = "";
+
+        if (typeof tokenOrHref === "object" && tokenOrHref !== null) {
+          href = tokenOrHref.href || "";
+          linkTitle = tokenOrHref.title || "";
+          linkText = tokenOrHref.text || tokenOrHref.raw || href;
+        } else {
+          href = tokenOrHref || "";
+          linkTitle = title || "";
+          linkText = text || href;
+        }
+
+        const titleAttr = linkTitle ? ` title="${escapeHtml(linkTitle)}"` : "";
+        return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"${titleAttr} class="chat-external-link">${linkText}</a>`;
+      };
+
+      if (marked.use) {
+        marked.use({
+          renderer: renderer,
+          gfm: true,
+          breaks: true
+        });
+      } else if (marked.setOptions) {
+        marked.setOptions({
+          renderer: renderer,
+          gfm: true,
+          breaks: true
+        });
+      }
+    } catch (e) {
+      console.warn("[Recruit Copilot] Error configuring marked renderer:", e);
+    }
   }
 
   const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
@@ -138,11 +429,20 @@ async function initHealthChecks() {
     if (res.ok) {
       const data = await res.json();
       dot.className = "status-dot status-dot-active";
-      if (data.ollama && data.ollama.status === "online") {
-        label.innerText = "Engine Ready";
+      const geminiOnline = data.llm && data.llm.active_available && data.llm.active_available.gemini;
+      const ollamaOnline = data.llm && data.llm.active_available && data.llm.active_available.ollama;
+
+      if (geminiOnline && ollamaOnline) {
+        label.innerText = "Hybrid Ready";
+        label.title = "Both Gemini API & Local Ollama online";
+      } else if (geminiOnline) {
+        label.innerText = "Gemini Ready";
+        label.title = "Gemini API online, Ollama offline";
+      } else if (ollamaOnline) {
+        label.innerText = "Ollama Ready";
+        label.title = "Ollama online, Gemini API unconfigured";
       } else {
-        label.innerText = "Backend Ready (Ollama Offline)";
-        dot.className = "status-dot status-dot-inactive";
+        label.innerText = "Engine Ready";
       }
     } else {
       markOffline();
@@ -183,7 +483,7 @@ async function scrapeAndExtractFromTab() {
     `;
   }
   if (aiBadge) {
-    aiBadge.innerText = "✨ 1/2 Scraping page...";
+    aiBadge.innerText = "1/2 Scraping page...";
     aiBadge.className = "badge-ai badge-ai-pulsing";
     aiBadge.classList.remove("rs-hidden");
   }
@@ -205,7 +505,7 @@ async function scrapeAndExtractFromTab() {
     // Step 0: Check if active tab is itself an opened PDF
     if (pageUrl && pageUrl.toLowerCase().includes(".pdf")) {
       if (aiBadge) {
-        aiBadge.innerText = "📄 Ingesting active PDF tab...";
+        aiBadge.innerText = "Ingesting active PDF tab...";
         aiBadge.className = "badge-ai badge-ai-pulsing";
       }
       try {
@@ -216,14 +516,14 @@ async function scrapeAndExtractFromTab() {
           const file = new File([blob], cleanName, { type: "application/pdf" });
           await handlePdfUpload(file);
           if (aiBadge) {
-            aiBadge.innerText = "✨ Active PDF Extracted";
+            aiBadge.innerText = "Active PDF Extracted";
             aiBadge.className = "badge-ai";
             setTimeout(() => { if (aiBadge) aiBadge.classList.add("rs-hidden"); }, 4000);
           }
           return;
         }
       } catch (pdfTabErr) {
-        console.warn("[RecruitSage] Error fetching active PDF tab:", pdfTabErr);
+        console.warn("[Recruit Copilot] Error fetching active PDF tab:", pdfTabErr);
       }
     }
 
@@ -250,7 +550,7 @@ async function scrapeAndExtractFromTab() {
         }
       }
     } catch (msgErr) {
-      console.log("[RecruitSage] Content script message error:", msgErr);
+      console.log("[Recruit Copilot] Content script message error:", msgErr);
     }
 
     // Step 1B: Robust fallback - scrape directly via chrome.scripting if content script didn't answer
@@ -269,7 +569,7 @@ async function scrapeAndExtractFromTab() {
           pageUrl = results[0].result.url || pageUrl;
         }
       } catch (scriptErr) {
-        console.warn("[RecruitSage] Scripting executeScript error:", scriptErr);
+        console.warn("[Recruit Copilot] Scripting executeScript error:", scriptErr);
       }
     }
 
@@ -284,28 +584,34 @@ async function scrapeAndExtractFromTab() {
 
     currentRawPageText = scrapedText;
 
-    // Step 2: Feed into LLM (Qwen 2.5) to convert raw text into structured JSON
+    // Step 2: Feed into LLM (Gemini / Ollama) to convert raw text into structured JSON
+    const provDisplay = currentProvider === "ollama" ? "Ollama" : "Gemini";
     if (aiBadge) {
-      aiBadge.innerText = "✨ 2/2 LLM parsing drive notice...";
+      aiBadge.innerText = `2/2 ${provDisplay} parsing notice...`;
       aiBadge.className = "badge-ai badge-ai-pulsing";
     }
 
     const res = await fetch(`${BACKEND_URL}/api/extract-drive-context`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ raw_page_text: scrapedText, page_url: pageUrl })
+      body: JSON.stringify({
+        raw_page_text: scrapedText,
+        page_url: pageUrl,
+        provider: currentProvider
+      })
     });
 
     if (res.ok) {
       const parsedJson = await res.json();
-      console.log("[RecruitSage] LLM Parsed JSON:", parsedJson);
+      console.log("[Recruit Copilot] LLM Parsed JSON:", parsedJson);
 
       // Step 3: Fill the input fields in the form with the parsed JSON!
       populateInputs(parsedJson, true);
       chrome.storage.local.set({ last_extracted_company: parsedJson });
 
       if (aiBadge) {
-        aiBadge.innerText = "✨ Form Filled via LLM";
+        const usedProv = parsedJson.active_provider === "ollama" ? "Ollama" : "Gemini";
+        aiBadge.innerText = `Form Filled via ${usedProv}`;
         aiBadge.className = "badge-ai";
         setTimeout(() => {
           if (aiBadge) aiBadge.classList.add("rs-hidden");
@@ -313,14 +619,14 @@ async function scrapeAndExtractFromTab() {
       }
     } else {
       const errText = await res.text();
-      console.warn("[RecruitSage] LLM extraction error:", errText);
+      console.warn("[Recruit Copilot] LLM extraction error:", errText);
       if (aiBadge) {
         aiBadge.innerText = "LLM error - heuristic used";
         setTimeout(() => aiBadge.classList.add("rs-hidden"), 4000);
       }
     }
   } catch (err) {
-    console.error("[RecruitSage] Scrape & LLM error:", err);
+    console.error("[Recruit Copilot] Scrape & LLM error:", err);
     if (aiBadge) {
       aiBadge.innerText = "Backend offline";
       setTimeout(() => aiBadge.classList.add("rs-hidden"), 4000);
@@ -373,7 +679,103 @@ function populateInputs(data, isLlmParsed = false) {
 
   setVal("input-jd", data.clean_jd_summary || data.jd_text || data.raw_page_text);
 
+  const bulletDetails = data.additional_details || data.extra_details || "";
+  if (bulletDetails && bulletDetails.trim().length > 10) {
+    const el = document.getElementById("input-additional-notes");
+    if (el) {
+      if (!el.value || isLlmParsed || bulletDetails.length >= el.value.length) {
+        el.value = bulletDetails;
+      }
+    }
+  }
+
   chrome.storage.local.set({ last_extracted_company: data });
+  updateQueryPanelSummary();
+  renderAlumniSection(data.company_name);
+}
+
+function updateQueryPanelSummary() {
+  const comp = document.getElementById("input-company") ? document.getElementById("input-company").value.trim() : "";
+  const role = document.getElementById("input-role") ? document.getElementById("input-role").value.trim() : "";
+  const ctc = document.getElementById("input-ctc") ? document.getElementById("input-ctc").value.trim() : "";
+
+  const titleEl = document.getElementById("query-collapsed-title");
+  const ctcEl = document.getElementById("query-collapsed-ctc");
+
+  if (titleEl) {
+    if (comp) {
+      titleEl.textContent = `${comp}${role ? " • " + role : ""}`;
+    } else {
+      titleEl.textContent = "No company targeted yet";
+    }
+  }
+
+  if (ctcEl) {
+    ctcEl.textContent = ctc ? `CTC: ${ctc}` : "";
+  }
+}
+
+const CHEVRON_DOWN_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+const CHEVRON_RIGHT_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+
+function toggleQueryPanel(forceCollapse = null) {
+  const body = document.getElementById("query-panel-body");
+  const bar = document.getElementById("query-panel-collapsed-bar");
+  const icon = document.getElementById("toggle-query-panel-icon");
+  if (!body || !bar) return;
+
+  const isCurrentlyHidden = body.classList.contains("rs-hidden");
+  let shouldHide;
+
+  if (forceCollapse !== null) {
+    shouldHide = forceCollapse;
+  } else {
+    shouldHide = !isCurrentlyHidden;
+  }
+
+  if (shouldHide) {
+    body.classList.add("rs-hidden");
+    bar.classList.remove("rs-hidden");
+    if (icon) icon.innerHTML = CHEVRON_RIGHT_SVG;
+  } else {
+    body.classList.remove("rs-hidden");
+    bar.classList.add("rs-hidden");
+    if (icon) icon.innerHTML = CHEVRON_DOWN_SVG;
+  }
+}
+
+function clearQueryTarget() {
+  const fields = [
+    "input-company", "input-role", "input-ctc", "input-location",
+    "input-job-type", "input-deadline", "input-probation",
+    "input-eligibility", "input-skills", "input-jd", "input-additional-notes"
+  ];
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+
+  attachedPdfText = "";
+  attachedPdfFilename = "";
+  currentRawPageText = "";
+
+  const fileInput = document.getElementById("input-pdf-file");
+  if (fileInput) fileInput.value = "";
+  const statusBadge = document.getElementById("pdf-status-badge");
+  if (statusBadge) statusBadge.style.display = "none";
+  const dropzone = document.getElementById("pdf-dropzone");
+  if (dropzone) dropzone.style.display = "flex";
+
+  const aiBadge = document.getElementById("ai-extract-badge");
+  if (aiBadge) aiBadge.classList.add("rs-hidden");
+
+  chrome.storage.local.remove(["last_extracted_company"]);
+  updateQueryPanelSummary();
+  renderAlumniSection("");
+  toggleQueryPanel(false);
+
+  const compEl = document.getElementById("input-company");
+  if (compEl) compEl.focus();
 }
 
 // 3. Event Listeners
@@ -382,6 +784,87 @@ function initEventListeners() {
   if (themeToggleBtn) {
     themeToggleBtn.addEventListener("click", toggleTheme);
   }
+
+  // Demo Privacy Mode Toggle (Blurs sensitive salary & compensation details for video recording)
+  const privacyToggleBtn = document.getElementById("btn-privacy-toggle");
+  const privacyBanner = document.getElementById("demo-privacy-banner");
+  const privacyBannerText = document.getElementById("demo-privacy-banner-text");
+
+  function setPrivacyMode(enabled) {
+    if (enabled) {
+      document.body.classList.remove("privacy-unblurred");
+      if (privacyToggleBtn) {
+        privacyToggleBtn.classList.add("is-privacy-active");
+        privacyToggleBtn.title = "Demo Privacy Mode: Salary and compensation blurred (Click to toggle)";
+      }
+      if (privacyBanner) privacyBanner.style.display = "flex";
+      if (privacyBannerText) privacyBannerText.innerText = "Demo Recording Mode: Salary and compensation values are blurred";
+    } else {
+      document.body.classList.add("privacy-unblurred");
+      if (privacyToggleBtn) {
+        privacyToggleBtn.classList.remove("is-privacy-active");
+        privacyToggleBtn.title = "Demo Privacy Mode: Inactive (Click to blur sensitive salary details)";
+      }
+      if (privacyBanner) privacyBanner.style.display = "none";
+    }
+    try {
+      localStorage.setItem("recruitsage_demo_privacy", enabled ? "true" : "false");
+    } catch (e) {}
+  }
+
+  if (privacyToggleBtn) {
+    privacyToggleBtn.addEventListener("click", () => {
+      const isCurrentlyBlurred = !document.body.classList.contains("privacy-unblurred");
+      setPrivacyMode(!isCurrentlyBlurred);
+    });
+  }
+
+  // Default to blurred mode for demo video recording
+  let savedPrivacy = "true";
+  try {
+    const s = localStorage.getItem("recruitsage_demo_privacy");
+    if (s !== null) savedPrivacy = s;
+  } catch (e) {}
+  setPrivacyMode(savedPrivacy === "true");
+
+  // Hybrid Model Provider Toggle Listeners
+  const geminiBtn = document.getElementById("btn-model-gemini");
+  const ollamaBtn = document.getElementById("btn-model-ollama");
+  if (geminiBtn) {
+    geminiBtn.addEventListener("click", () => setProvider("gemini", true));
+  }
+  if (ollamaBtn) {
+    ollamaBtn.addEventListener("click", () => setProvider("ollama", true));
+  }
+
+  // Query Panel Controls
+  const toggleQueryBtn = document.getElementById("btn-toggle-query-panel");
+  if (toggleQueryBtn) {
+    toggleQueryBtn.addEventListener("click", () => toggleQueryPanel());
+  }
+
+  const expandQueryBtn = document.getElementById("btn-expand-query-panel");
+  if (expandQueryBtn) {
+    expandQueryBtn.addEventListener("click", () => toggleQueryPanel(false));
+  }
+
+  const clearTargetBtn = document.getElementById("btn-clear-target");
+  if (clearTargetBtn) {
+    clearTargetBtn.addEventListener("click", clearQueryTarget);
+  }
+
+  // Live update collapsed summary pill and alumni section on user input
+  ["input-company", "input-role", "input-ctc"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener("input", () => {
+        updateQueryPanelSummary();
+        if (id === "input-company") {
+          renderAlumniSection();
+        }
+      });
+    }
+  });
 
   document.getElementById("btn-sync-page").addEventListener("click", scrapeAndExtractFromTab);
   document.getElementById("btn-analyze").addEventListener("click", runAnalysis);
@@ -400,7 +883,7 @@ function initEventListeners() {
   if (toggleJdBtn && jdDrawer) {
     toggleJdBtn.addEventListener("click", () => {
       const isHidden = jdDrawer.classList.toggle("rs-hidden");
-      if (toggleIcon) toggleIcon.innerText = isHidden ? "▸" : "▾";
+      if (toggleIcon) toggleIcon.innerHTML = isHidden ? CHEVRON_RIGHT_SVG : CHEVRON_DOWN_SVG;
     });
   }
 
@@ -411,7 +894,7 @@ function initEventListeners() {
   if (toggleExtraBtn && extraDrawer) {
     toggleExtraBtn.addEventListener("click", () => {
       const isHidden = extraDrawer.classList.toggle("rs-hidden");
-      if (toggleExtraIcon) toggleExtraIcon.innerText = isHidden ? "▸" : "▾";
+      if (toggleExtraIcon) toggleExtraIcon.innerHTML = isHidden ? CHEVRON_RIGHT_SVG : CHEVRON_DOWN_SVG;
     });
   }
 
@@ -539,7 +1022,7 @@ function initEventListeners() {
           <span class="doc-chip-title" title="${escapeHtml(pdf.title)}">${escapeHtml(pdf.title)}</span>
         </div>
         <button type="button" class="btn-chip-ingest">
-          Ingest ⚡
+          Ingest PDF
         </button>
       `;
 
@@ -562,7 +1045,7 @@ function initEventListeners() {
             attachedPdfText = (attachedPdfText ? attachedPdfText + "\n\n" : "") + (bData.extracted_text || "");
             attachedPdfFilename = bData.filename || pdf.filename;
             ingestBtn.className = "btn-chip-ingest btn-chip-ingested";
-            ingestBtn.innerText = `✓ Ingested (${bData.num_pages || 1}p)`;
+            ingestBtn.innerText = `Ingested (${bData.num_pages || 1}p)`;
             if (bData.parsed_fields) populateExtractedFields(bData.parsed_fields, false);
             return;
           }
@@ -571,9 +1054,9 @@ function initEventListeners() {
           const file = new File([blob], pdf.filename || "Placement_Doc.pdf", { type: "application/pdf" });
           await handlePdfUpload(file);
           ingestBtn.className = "btn-chip-ingest btn-chip-ingested";
-          ingestBtn.innerText = "✓ Ingested";
+          ingestBtn.innerText = "Ingested";
         } catch (err) {
-          console.error("[RecruitSage] PDF Ingestion error:", err);
+          console.error("[Recruit Copilot] PDF Ingestion error:", err);
           ingestBtn.innerText = "Fetch failed";
           setTimeout(() => {
             ingestBtn.disabled = false;
@@ -602,24 +1085,78 @@ function initEventListeners() {
       btn.classList.add("is-active");
       const targetPane = document.getElementById(btn.getAttribute("data-tab"));
       if (targetPane) targetPane.classList.add("is-active");
+
+      if (btn.getAttribute("data-tab") === "tab-alumni") {
+        renderAlumniSection();
+      }
+    });
+  });
+
+  // Question Bank Category Filter Switcher (All Questions / Actual Database / Web Researched)
+  document.querySelectorAll(".prep-qtab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".prep-qtab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const target = btn.getAttribute("data-target");
+      const dbGroup = document.getElementById("group-database-questions");
+      const webGroup = document.getElementById("group-web-questions");
+      if (!dbGroup || !webGroup) return;
+      if (target === "all") {
+        dbGroup.style.display = "";
+        webGroup.style.display = "";
+      } else if (target === "database") {
+        dbGroup.style.display = "";
+        webGroup.style.display = "none";
+      } else if (target === "web") {
+        dbGroup.style.display = "none";
+        webGroup.style.display = "";
+      }
     });
   });
 
   // Chat send
   document.getElementById("btn-chat-send").addEventListener("click", sendChatMessage);
-  document.getElementById("chat-input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendChatMessage();
-    }
-  });
+  const chatInput = document.getElementById("chat-input");
+  if (chatInput) {
+    chatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    });
+    chatInput.addEventListener("input", () => {
+      chatInput.style.height = "auto";
+      chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + "px";
+    });
+  }
 
   // Query chips
   document.querySelectorAll(".chip").forEach(chip => {
     chip.addEventListener("click", () => {
-      document.getElementById("chat-input").value = chip.getAttribute("data-q");
+      const ci = document.getElementById("chat-input");
+      if (ci) {
+        ci.value = chip.getAttribute("data-q");
+        ci.style.height = "auto";
+        ci.style.height = Math.min(ci.scrollHeight, 120) + "px";
+      }
       sendChatMessage();
     });
+  });
+
+  // Global link handler: Ensure ANY web links in Doubt Solver & throughout the extension open in a new browser tab
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest("a");
+    if (!link) return;
+    const href = link.getAttribute("href");
+    if (href && (href.startsWith("http://") || href.startsWith("https://"))) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof chrome !== "undefined" && chrome.tabs && typeof chrome.tabs.create === "function") {
+        chrome.tabs.create({ url: href });
+      } else {
+        window.open(href, "_blank", "noopener,noreferrer");
+      }
+    }
   });
 }
 
@@ -643,14 +1180,17 @@ async function runAnalysis() {
   }
 
   hideError();
+  updateQueryPanelSummary();
+  toggleQueryPanel(true); // Automatically collapse query panel on audit start to maximize screen space
   showProgress();
+  resetChatForCompany(companyName, role);
 
   const stepTimers = [
-    setTimeout(() => activateStep(2, "Querying campus historical records..."), 700),
-    setTimeout(() => activateStep(3, "Mining developer discussions..."), 2000),
-    setTimeout(() => activateStep(4, "Aggregating verified reviews..."), 3500),
-    setTimeout(() => activateStep(5, "Auditing 9-point red flags..."), 5000),
-    setTimeout(() => activateStep(6, "Synthesizing briefing dossier..."), 6500),
+    setTimeout(() => activateStep(2, "Checking past college placement records..."), 700),
+    setTimeout(() => activateStep(3, "Searching Reddit and student posts..."), 2000),
+    setTimeout(() => activateStep(4, "Reading employee reviews and ratings..."), 3500),
+    setTimeout(() => activateStep(5, "Checking company size, bonds & red flags..."), 5000),
+    setTimeout(() => activateStep(6, "Creating your company report..."), 6500),
   ];
 
   const extraNotes = document.getElementById("input-additional-notes") ? document.getElementById("input-additional-notes").value.trim() : "";
@@ -674,7 +1214,8 @@ async function runAnalysis() {
       skills: skills,
       jd_text: jd,
       raw_page_text: currentRawPageText || jd || "",
-      additional_context: additionalContext
+      additional_context: additionalContext,
+      provider: currentProvider
     };
 
     const res = await fetch(`${BACKEND_URL}/api/analyze`, {
@@ -697,7 +1238,7 @@ async function runAnalysis() {
   } catch (error) {
     stepTimers.forEach(t => clearTimeout(t));
     hideProgress();
-    showError(`Audit failed: ${error.message}. Ensure backend is running.`);
+    showError(`Analysis failed: ${error.message}. Please make sure the backend is running.`);
   }
 }
 
@@ -741,9 +1282,25 @@ function hideError() {
 
 // 5. Render Dossier
 function renderDossier(dossier) {
+  currentDossier = dossier;
+
+  // Refresh Doubt Solver chat context to the new company
+  resetChatForCompany(dossier.company_name, dossier.role);
+
+  // Ensure default active tab is Compensation (first tab) if Red Flags was active
+  const activeBtn = document.querySelector(".segment-btn.is-active");
+  if (!activeBtn || activeBtn.getAttribute("data-tab") === "tab-redflags") {
+    document.querySelectorAll(".segment-btn").forEach(b => b.classList.remove("is-active"));
+    document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("is-active"));
+    const compBtn = document.querySelector('.segment-btn[data-tab="tab-compensation"]');
+    const compPane = document.getElementById("tab-compensation");
+    if (compBtn) compBtn.classList.add("is-active");
+    if (compPane) compPane.classList.add("is-active");
+  }
+
   // Hero Verdict
   const fitBadge = document.getElementById("fit-badge");
-  fitBadge.innerText = dossier.fit_score || "Audit Complete";
+  fitBadge.innerText = dossier.fit_score || "Report Ready";
   fitBadge.className = "tag-fit";
   const scoreLower = (dossier.fit_score || "").toLowerCase();
   if (scoreLower.includes("high")) {
@@ -752,6 +1309,21 @@ function renderDossier(dossier) {
     fitBadge.classList.add("tag-fit-caution");
   } else {
     fitBadge.classList.add("tag-fit-moderate");
+  }
+
+  // Active Provider Badge on Hero Card
+  const provBadge = document.getElementById("hero-provider-badge");
+  if (provBadge) {
+    const actProv = (dossier.active_provider || currentProvider).toLowerCase();
+    if (actProv.includes("ollama")) {
+      provBadge.innerText = "Ollama (Qwen 2.5)";
+      provBadge.classList.add("is-ollama");
+      provBadge.title = "Generated using local Ollama model";
+    } else {
+      provBadge.innerText = "Gemini (Flash Lite)";
+      provBadge.classList.remove("is-ollama");
+      provBadge.title = "Generated using Google Gemini model";
+    }
   }
 
   document.getElementById("sources-count").innerText = `${dossier.raw_sources_count || 12} sources verified`;
@@ -778,15 +1350,15 @@ function renderDossier(dossier) {
       evalOverallScore.innerText = `${ev.overall_score}% Verified`;
     }
     if (evalVerdict) {
-      evalVerdict.innerText = ev.verdict || "Exhaustively verified audit.";
+      evalVerdict.innerText = ev.verdict || "Carefully verified report.";
     }
     if (evalMetricsGrid) {
       evalMetricsGrid.innerHTML = "";
       const metricItems = [
-        { name: "Groundedness", score: ev.groundedness_score || 90 },
+        { name: "Fact Accuracy", score: ev.groundedness_score || 90 },
         { name: "Red-Flag Check", score: ev.completeness_score || 88 },
-        { name: "Comp Realism", score: ev.compensation_realism_score || 90 },
-        { name: "Specificity", score: ev.specificity_score || 85 }
+        { name: "Salary Realism", score: ev.compensation_realism_score || 90 },
+        { name: "Role Specificity", score: ev.specificity_score || 85 }
       ];
       metricItems.forEach(m => {
         const box = document.createElement("div");
@@ -847,7 +1419,7 @@ function renderDossier(dossier) {
       redFlagsList.appendChild(card);
     });
   } else {
-    redFlagsList.innerHTML = `<div class="stack-card">No significant policy or compensation risks detected.</div>`;
+    redFlagsList.innerHTML = `<div class="stack-card">No significant risks or warning signs detected for this company.</div>`;
   }
 
   // Tab 2: Compensation
@@ -867,18 +1439,18 @@ function renderDossier(dossier) {
       trapsList.appendChild(li);
     });
   } else {
-    trapsList.innerHTML = `<li>No hidden deductions or retention clauses reported.</li>`;
+    trapsList.innerHTML = `<li>No hidden deductions or bond clauses found.</li>`;
   }
 
-  // Tab 3: Campus Intel
+  // Tab 3: Campus Records
   const campus = dossier.campus_intel || {};
   const campusBanner = document.getElementById("campus-status-banner");
   if (campus.visited_previously) {
     campusBanner.className = "status-callout callout-matched";
-    campusBanner.innerText = `Verified in campus records: ${campus.matched_company_name}`;
+    campusBanner.innerText = `Found in past college placement records: ${campus.matched_company_name}`;
   } else {
     campusBanner.className = "status-callout callout-empty";
-    campusBanner.innerText = "No prior campus visit recorded under this title in university database.";
+    campusBanner.innerText = "No previous campus visits found for this company in college records.";
   }
 
   const visitsContainer = document.getElementById("campus-visits-container");
@@ -941,7 +1513,7 @@ function renderDossier(dossier) {
     }
 
     if (topicSummary) {
-      topicSummary.innerText = tb.top_topics ? `High-yield focus topics: ${tb.top_topics} (${tb.total_questions || (campus.past_questions || []).length} total questions cataloged).` : `${tb.total_questions || (campus.past_questions || []).length} total questions cataloged in Master DB.`;
+      topicSummary.innerText = tb.top_topics ? `Top focus topics: ${tb.top_topics} (${tb.total_questions || (campus.past_questions || []).length} past questions found).` : `${tb.total_questions || (campus.past_questions || []).length} past questions found in college database.`;
     }
   } else {
     if (topicCard) topicCard.style.display = "none";
@@ -972,7 +1544,7 @@ function renderDossier(dossier) {
         <div class="question-title">${escapeHtml(q.question_title)}</div>
         ${notesContent ? `
           <div class="question-notes">
-            <span class="hint-badge">💡 Strategy Hint:</span>${escapeHtml(notesContent)}
+            <span class="hint-badge">Interview Tip:</span> ${escapeHtml(notesContent)}
           </div>
         ` : ""}
       `;
@@ -980,7 +1552,7 @@ function renderDossier(dossier) {
     });
   } else {
     if (questionsCount) questionsCount.innerText = "0 Questions";
-    questionsList.innerHTML = `<div class="stack-card" style="color:var(--text-muted)">No specific question bank records matched for this company or tech stack.</div>`;
+    questionsList.innerHTML = `<div class="stack-card" style="color:var(--text-muted)">No past college questions found for this specific company.</div>`;
   }
 
   // Tab 4: Culture
@@ -1014,42 +1586,297 @@ function renderDossier(dossier) {
     consList.appendChild(li);
   });
 
-  // Tab 5: Alumni (Direct Senior Profiles & Verified Discovery)
-  const alumniList = document.getElementById("alumni-links-list");
-  alumniList.innerHTML = "";
-  if (dossier.alumni_links && dossier.alumni_links.length > 0) {
-    dossier.alumni_links.forEach(a => {
-      const card = document.createElement("div");
-      card.className = "senior-card";
+  // Top 3-4 Review Portals (AmbitionBox, Glassdoor, Reddit, Indeed)
+  const sourcesContainer = document.getElementById("culture-sources-list");
+  if (sourcesContainer) {
+    sourcesContainer.innerHTML = "";
+    const inputComp = document.getElementById("input-company") ? document.getElementById("input-company").value.trim() : "";
+    const targetComp = dossier.company_name || inputComp || "Company";
+    const encComp = encodeURIComponent(targetComp);
 
-      const name = a.name || a.title;
-      const headline = a.headline || a.search_query;
-      const initials = getInitials(name);
-      const isDirectProfile = a.url && a.url.includes("linkedin.com/in/");
-      const sourceType = a.source_type || (isDirectProfile ? "Verified Profile" : "Official Alumni Tool");
+    // Use backend sources or generate standard top 4 fallback
+    const rawSources = (culture.review_sources && culture.review_sources.length > 0)
+      ? culture.review_sources.slice(0, 4)
+      : [
+          {
+            name: "AmbitionBox Reviews",
+            url: `https://www.ambitionbox.com/search?q=${encComp}`,
+            description: "Verified India ratings & salaries",
+            badge: "AmbitionBox",
+            icon: ""
+          },
+          {
+            name: "Glassdoor Reviews",
+            url: `https://www.glassdoor.co.in/Search/results.htm?keyword=${encComp}`,
+            description: "Pros, cons & culture feedback",
+            badge: "Glassdoor",
+            icon: ""
+          },
+          {
+            name: "Reddit Discussions",
+            url: `https://www.reddit.com/r/developersIndia/search/?q=${encComp}`,
+            description: "Dev threads & honest work culture",
+            badge: "Reddit",
+            icon: ""
+          },
+          {
+            name: "Indeed Reviews",
+            url: `https://in.indeed.com/cmp/${encComp}/reviews`,
+            description: "Work-life balance & management",
+            badge: "Indeed",
+            icon: ""
+          }
+        ];
+
+    rawSources.slice(0, 4).forEach(src => {
+      const card = document.createElement("a");
+      card.className = "review-source-card";
+      card.href = src.url;
+      card.target = "_blank";
+      card.rel = "noopener noreferrer";
+
+      let brandColor = "#6366f1";
+      const bLow = (src.badge || src.name || "").toLowerCase();
+      if (bLow.includes("ambitionbox")) brandColor = "#f97316";
+      else if (bLow.includes("glassdoor")) brandColor = "#10b981";
+      else if (bLow.includes("reddit")) brandColor = "#ff4500";
+      else if (bLow.includes("indeed")) brandColor = "#38bdf8";
 
       card.innerHTML = `
-        <div class="senior-info">
-          <div class="senior-avatar">${initials}</div>
-          <div class="senior-meta">
-            <div style="display:flex; align-items:center; gap:5px; margin-bottom:2px;">
-              <span class="senior-name">${escapeHtml(name)}</span>
-              <span style="font-size:9px; font-weight:600; padding:1px 5px; border-radius:3px; background:rgba(99,102,241,0.15); color:#a5b4fc; border:1px solid rgba(99,102,241,0.25);">${escapeHtml(sourceType)}</span>
-            </div>
-            <span class="senior-headline">${escapeHtml(headline)}</span>
-            ${a.batch_info ? `<span style="font-size:10px; color:#34d399; margin-top:2px;">🎓 ${escapeHtml(a.batch_info)}</span>` : ""}
+        <div class="source-card-header">
+          <div class="source-card-brand">
+            <span class="source-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></span>
+            <span class="source-name">${escapeHtml(src.name)}</span>
           </div>
+          <span class="source-badge" style="background:${brandColor}18; color:${brandColor}; border-color:${brandColor}35;">
+            ${escapeHtml(src.badge || "Portal")}
+          </span>
         </div>
-        <a href="${escapeHtml(a.url)}" target="_blank" class="btn-link-action">
-          ${isDirectProfile ? "Profile ↗" : "Explore ↗"}
-        </a>
+        <p class="source-desc">${escapeHtml(src.description || "Read employee reviews & workplace culture")}</p>
       `;
-      alumniList.appendChild(card);
+      sourcesContainer.appendChild(card);
     });
   }
 
-  // Tab 6: Prep Plan (Structured & Data-Grounded)
+  // Tab 4: Alumni & Senior Network (Direct 1-Click LinkedIn Search with School Filter)
+  renderAlumniSection(dossier.company_name, dossier.alumni_links);
+
+  // Tab 3: Prep Plan (Divided Question Bank & Role-Specific Topics)
   const prep = dossier.prep_guide || (dossier.campus_intel ? dossier.campus_intel.deep_prep : {}) || {};
+
+  // Target Company & Role Header
+  const targetCompEl = document.getElementById("prep-target-company-name");
+  const targetRoleEl = document.getElementById("prep-target-role-name");
+  const effCompName = prep.target_company || dossier.company_name || "Target Company";
+  const effRoleName = prep.target_role || dossier.role || "Technical Role";
+  if (targetCompEl) targetCompEl.innerText = effCompName;
+  if (targetRoleEl) targetRoleEl.innerText = effRoleName;
+
+  // Helper to format unstructured or bullet-delimited text into a clean HTML bullet list
+  function formatNotesToBulletList(rawNotes) {
+    if (!rawNotes || typeof rawNotes !== "string" || !rawNotes.trim()) return "";
+    
+    let text = rawNotes.trim();
+    let parts = [];
+
+    if (text.includes(" • ")) {
+      parts = text.split(" • ");
+    } else if (text.includes("\n")) {
+      parts = text.split(/\r?\n+/);
+    } else if (text.includes("•")) {
+      parts = text.split("•");
+    } else if (text.includes("; ") && text.split("; ").length >= 2) {
+      parts = text.split("; ");
+    } else {
+      const splitByNum = text.split(/(?:^|\s+)(?:\d+[\.\)]|\([0-9]+\))\s+/).filter(Boolean);
+      if (splitByNum.length > 1) {
+        parts = splitByNum;
+      } else {
+        parts = [text];
+      }
+    }
+
+    const cleanBullets = parts
+      .map(p => p.trim().replace(/^[•\-\*]\s*/, ""))
+      .filter(p => p.length > 0);
+
+    if (cleanBullets.length === 0) return "";
+
+    const itemsHtml = cleanBullets.map(bullet => `
+      <li class="question-bullet-item">
+        <span class="bullet-dot" aria-hidden="true"></span>
+        <span class="bullet-text">${escapeHtml(bullet)}</span>
+      </li>
+    `).join("");
+
+    return `<ul class="question-bullet-list">${itemsHtml}</ul>`;
+  }
+
+  // Helper to render divided question cards (database vs web researched)
+  function createQuestionElement(q, category, index) {
+    const item = document.createElement("div");
+    item.className = "question-row question-card-divided";
+    
+    const diffClass = (q.difficulty || "medium").toLowerCase();
+    const diffTag = diffClass.includes("hard") ? "diff-hard" : diffClass.includes("easy") ? "diff-easy" : "diff-medium";
+    const roundLabel = q.round_type || (category === "database" ? "Technical Round" : "Online Assessment");
+    const topicLabel = q.topic ? (q.exact_topic ? `${q.topic} • ${q.exact_topic}` : q.topic) : "Technical Focus";
+    const notesContent = q.notes || q.question_details || "";
+    const qNum = typeof index === "number" ? index + 1 : null;
+    const bulletsHtml = formatNotesToBulletList(notesContent);
+
+    if (category === "database") {
+      const driveSource = q.source_drive || "Campus Placement Database";
+      const isTiet = driveSource.toLowerCase().includes("tiet") || driveSource.toLowerCase().includes("thapar") || driveSource.toLowerCase().includes("optum");
+      const driveBadgeClass = isTiet ? "badge-drive-tiet" : "badge-drive-other";
+
+      item.innerHTML = `
+        <div class="question-top">
+          <div class="question-badges">
+            ${qNum ? `<span class="question-num-tag">Q${qNum}</span>` : ""}
+            <span class="badge-drive ${driveBadgeClass}">${escapeHtml(driveSource)}</span>
+            <span class="question-round-badge">${escapeHtml(roundLabel)}</span>
+            <span class="question-tag">${escapeHtml(topicLabel)}</span>
+          </div>
+          <span class="question-diff ${diffTag}">${escapeHtml(q.difficulty || "Medium")}</span>
+        </div>
+        <div class="question-title">${escapeHtml(q.question_title)}</div>
+        ${bulletsHtml ? `
+          <div class="question-notes">
+            <div class="question-notes-header">
+              <span class="hint-badge">${isTiet ? 'TIET Placement Prep Guidance:' : 'Campus Placement Record:'}</span>
+              <span class="notes-caption">Key points to articulate</span>
+            </div>
+            ${bulletsHtml}
+          </div>
+        ` : ""}
+      `;
+    } else {
+      // Web Researched Question
+      const sourceName = q.source_name || "Web Research Archive";
+      const sourceUrl = q.source_url || "";
+
+      item.innerHTML = `
+        <div class="question-top">
+          <div class="question-badges">
+            ${qNum ? `<span class="question-num-tag">Q${qNum}</span>` : ""}
+            <span class="badge-drive badge-drive-web">${escapeHtml(sourceName)}</span>
+            <span class="question-round-badge">${escapeHtml(roundLabel)}</span>
+            <span class="question-tag">${escapeHtml(topicLabel)}</span>
+          </div>
+          <span class="question-diff ${diffTag}">${escapeHtml(q.difficulty || "Medium")}</span>
+        </div>
+        <div class="question-title">${escapeHtml(q.question_title)}</div>
+        ${bulletsHtml ? `
+          <div class="question-notes">
+            <div class="question-notes-header">
+              <span class="hint-badge">Candidate Interview Insight:</span>
+              <span class="notes-caption">Reported discussion points</span>
+            </div>
+            ${bulletsHtml}
+          </div>
+        ` : ""}
+        ${sourceUrl ? `
+          <div class="question-web-link-row">
+            <a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer" class="question-web-link">
+              <span>View source discussion on ${escapeHtml(sourceName)}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <line x1="10" y1="14" x2="21" y2="3"></line>
+              </svg>
+            </a>
+          </div>
+        ` : ""}
+      `;
+    }
+    return item;
+  }
+
+  // Extract divided questions: Actual Database vs Web Researched
+  let actualDbQs = prep.actual_database_questions || (dossier.campus_intel ? dossier.campus_intel.actual_database_questions : null) || [];
+  if (!Array.isArray(actualDbQs) || actualDbQs.length === 0) {
+    const thaparQs = prep.thapar_past_questions || (dossier.campus_intel ? dossier.campus_intel.thapar_past_questions : []) || [];
+    const otherQs = prep.other_campus_questions || (dossier.campus_intel ? dossier.campus_intel.other_campus_questions : []) || [];
+    actualDbQs = [...thaparQs, ...otherQs];
+  }
+
+  let webQs = prep.web_researched_questions || (dossier.campus_intel ? dossier.campus_intel.web_researched_questions : null) || [];
+  if (!Array.isArray(webQs)) {
+    webQs = [];
+  }
+
+  // Update question counts in navigation tabs and group headers
+  const totalCountBadge = document.getElementById("total-questions-badge");
+  const dbTabBadge = document.getElementById("db-questions-tab-badge");
+  const webTabBadge = document.getElementById("web-questions-tab-badge");
+  const dbCountBadge = document.getElementById("database-questions-count-badge");
+  const webCountBadge = document.getElementById("web-questions-count-badge");
+
+  const totalCount = actualDbQs.length + webQs.length;
+  if (totalCountBadge) totalCountBadge.innerText = totalCount;
+  if (dbTabBadge) dbTabBadge.innerText = actualDbQs.length;
+  if (webTabBadge) webTabBadge.innerText = webQs.length;
+  if (dbCountBadge) dbCountBadge.innerText = `${actualDbQs.length} ${actualDbQs.length === 1 ? 'Question' : 'Questions'}`;
+  if (webCountBadge) webCountBadge.innerText = `${webQs.length} ${webQs.length === 1 ? 'Question' : 'Questions'}`;
+
+  // Reset tab button active states to "All Questions" upon fresh dossier load
+  const allBtn = document.getElementById("btn-show-all-questions");
+  const dbBtn = document.getElementById("btn-show-db-questions");
+  const webBtn = document.getElementById("btn-show-web-questions");
+  const dbGroup = document.getElementById("group-database-questions");
+  const webGroup = document.getElementById("group-web-questions");
+  if (allBtn && dbBtn && webBtn) {
+    allBtn.classList.add("active");
+    dbBtn.classList.remove("active");
+    webBtn.classList.remove("active");
+  }
+  if (dbGroup) dbGroup.style.display = "";
+  if (webGroup) webGroup.style.display = "";
+
+  // Section 1: Actual Database of Last Year Questions
+  const dbStack = document.getElementById("prep-database-questions-stack");
+  if (dbStack) {
+    dbStack.innerHTML = "";
+    if (actualDbQs.length > 0) {
+      actualDbQs.forEach((q, idx) => {
+        dbStack.appendChild(createQuestionElement(q, "database", idx));
+      });
+    } else {
+      const emptyDiv = document.createElement("div");
+      emptyDiv.className = "prep-empty-callout";
+      emptyDiv.innerHTML = `
+        <div class="prep-empty-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></div>
+        <div class="prep-empty-content">
+          <div class="prep-empty-title">No past database questions found for ${escapeHtml(effRoleName)}</div>
+          <div class="prep-empty-desc">No previous recorded campus placement questions were retrieved for the <strong>${escapeHtml(effRoleName)}</strong> role at <strong>${escapeHtml(effCompName)}</strong> in the database. Check the Web Researched questions below for recent candidate technical interviews.</div>
+        </div>
+      `;
+      dbStack.appendChild(emptyDiv);
+    }
+  }
+
+  // Section 2: Web Researched Questions
+  const webStack = document.getElementById("prep-web-questions-stack");
+  if (webStack) {
+    webStack.innerHTML = "";
+    if (webQs.length > 0) {
+      webQs.forEach((q, idx) => {
+        webStack.appendChild(createQuestionElement(q, "web", idx));
+      });
+    } else {
+      const emptyDiv = document.createElement("div");
+      emptyDiv.className = "prep-empty-callout";
+      emptyDiv.innerHTML = `
+        <div class="prep-empty-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></div>
+        <div class="prep-empty-content">
+          <div class="prep-empty-title">No web researched questions found</div>
+          <div class="prep-empty-desc">No online technical interview questions were indexed for this specific role yet.</div>
+        </div>
+      `;
+      webStack.appendChild(emptyDiv);
+    }
+  }
 
   // 6A. Cross-Campus Recruitment Insights Alert
   const campusAlert = document.getElementById("prep-campus-alert");
@@ -1083,7 +1910,7 @@ function renderDossier(dossier) {
           </div>
           <div class="prep-subtopics-row">
             ${(item.subtopics || []).map(s => `<span class="prep-subtopic-tag">${escapeHtml(s)}</span>`).join("")}
-            <span class="prep-freq-meta">Drive Freq: ${item.drive_frequency || "High"} • ⭐ ${item.importance || 4}/5</span>
+            <span class="prep-freq-meta">Frequency: ${item.drive_frequency || "High"} • Priority: ${item.importance || 4}/5</span>
           </div>
         `;
         matrixStack.appendChild(card);
@@ -1103,17 +1930,17 @@ function renderDossier(dossier) {
         card.innerHTML = `
           <div class="prep-archetype-header">
             <span class="prep-archetype-title">${escapeHtml(arch.pattern_name)}</span>
-            <span class="prep-badge-freq">${escapeHtml(arch.frequency_rate || "High-Yield")}</span>
+            <span class="prep-badge-freq">${escapeHtml(arch.frequency_rate || "Commonly Asked")}</span>
           </div>
           <div class="prep-archetype-examples">
-            ${(arch.example_problems || []).map(ex => `<span class="prep-example-pill">📌 ${escapeHtml(ex)}</span>`).join("")}
+            ${(arch.example_problems || []).map(ex => `<span class="prep-example-pill">${escapeHtml(ex)}</span>`).join("")}
           </div>
           <div class="prep-archetype-meta">
             <span class="prep-target-tag">Target: ${escapeHtml(arch.complexity_target || "O(N)")}</span>
           </div>
           ${arch.dry_run_tips ? `
             <div class="prep-dryrun-box">
-              <strong>Dry-Run Tip:</strong> ${escapeHtml(arch.dry_run_tips)}
+              <strong>Coding Tip:</strong> ${escapeHtml(arch.dry_run_tips)}
             </div>
           ` : ""}
         `;
@@ -1134,14 +1961,14 @@ function renderDossier(dossier) {
         card.innerHTML = `
           <div class="prep-core-header">
             <span class="prep-core-title">${escapeHtml(subj.subject)}</span>
-            <span class="prep-badge-weight">${escapeHtml(subj.importance_weight || "High Priority")}</span>
+            <span class="prep-badge-weight">${escapeHtml(subj.importance_weight || "Important")}</span>
           </div>
           <ul class="prep-core-topics-list">
             ${(subj.high_yield_topics || []).map(t => `<li>${escapeHtml(t)}</li>`).join("")}
           </ul>
           ${subj.company_focus_questions && subj.company_focus_questions.length > 0 ? `
             <div class="prep-sample-q-box">
-              <span class="prep-q-header">Sample Campus Questions:</span>
+              <span class="prep-q-header">Frequently Asked Questions:</span>
               <ul class="prep-sample-list">
                 ${subj.company_focus_questions.map(q => `<li>"${escapeHtml(q)}"</li>`).join("")}
               </ul>
@@ -1171,19 +1998,19 @@ function renderDossier(dossier) {
             </div>
           </div>
           <div class="prep-round-focus">
-            <strong>Key Focus Areas:</strong>
+            <strong>What is Asked:</strong>
             <ul>
               ${(rnd.key_focus_areas || []).map(f => `<li>${escapeHtml(f)}</li>`).join("")}
             </ul>
           </div>
           ${rnd.common_traps ? `
             <div class="prep-trap-warning">
-              <strong>⚠️ Common Traps:</strong> ${escapeHtml(rnd.common_traps)}
+              <strong>Mistakes to Avoid:</strong> ${escapeHtml(rnd.common_traps)}
             </div>
           ` : ""}
           ${rnd.actionable_prep_strategy ? `
             <div class="prep-strategy-tip">
-              <strong>💡 Actionable Strategy:</strong> ${escapeHtml(rnd.actionable_prep_strategy)}
+              <strong>How to Prepare:</strong> ${escapeHtml(rnd.actionable_prep_strategy)}
             </div>
           ` : ""}
         `;
@@ -1224,31 +2051,216 @@ function renderDossier(dossier) {
   }
 }
 
-// 6. Chat Doubt Solver
+// Tab 4: Alumni & Senior Network (Direct 1-Click LinkedIn Search with School Filter)
+function renderAlumniSection(customComp = null, alumniLinks = null) {
+  const alumniList = document.getElementById("alumni-links-list");
+  if (!alumniList) return;
+
+  const inputComp = document.getElementById("input-company") ? document.getElementById("input-company").value.trim() : "";
+  const targetComp = customComp || (currentDossier ? currentDossier.company_name : "") || inputComp || "";
+
+  if (!targetComp) {
+    alumniList.innerHTML = `
+      <div class="alumni-empty-state">
+        <div class="alumni-empty-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c3 3 9 3 12 0v-5"></path></svg></div>
+        <div class="alumni-empty-title">Target a Company to Find Alumni</div>
+        <p class="alumni-empty-desc">
+          Enter a company name in the form above or sync the active placement page. Recruit Copilot will generate pre-filtered 1-click LinkedIn directory search links for Thapar seniors and alumni at that company.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  const primaryAlum = (alumniLinks && alumniLinks.length > 0)
+    ? alumniLinks[0]
+    : (currentDossier && currentDossier.alumni_links && currentDossier.alumni_links.length > 0 ? currentDossier.alumni_links[0] : null);
+
+  const searchQuery = `${targetComp} Thapar Institute of Engineering and Technology`;
+  const linkedinSearchUrl = (primaryAlum && primaryAlum.url)
+    ? primaryAlum.url
+    : `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(searchQuery)}`;
+
+  const schoolPortalUrl = (primaryAlum && primaryAlum.school_portal_url)
+    ? primaryAlum.school_portal_url
+    : `https://www.linkedin.com/school/thapar-institute-of-engineering-and-technology/people/?keywords=${encodeURIComponent(targetComp)}`;
+
+  alumniList.innerHTML = `
+    <div class="alumni-view-container">
+      <!-- Target Company & Filter Banner -->
+      <div class="alumni-target-banner">
+        <div class="alumni-target-head">
+          <span class="alumni-target-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10v6M2 10l10-5 10 5-10 5z"></path><path d="M6 12v5c3 3 9 3 12 0v-5"></path></svg></span>
+          <div class="alumni-target-info">
+            <div class="alumni-target-company">${escapeHtml(targetComp)}</div>
+            <span class="alumni-target-badge">Thapar Institute (TIET)</span>
+          </div>
+          <div class="alumni-live-indicator">
+            <span class="pulse-dot"></span>
+            <span class="live-label">Filter Active</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Primary LinkedIn Search Action Card -->
+      <div class="alumni-action-card">
+        <div class="alumni-action-header">
+          <div class="alumni-action-icon-wrap">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="#0A66C2">
+              <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 8.76a1.64 1.64 0 0 0 1.63-1.63 1.64 1.64 0 0 0-1.63-1.63 1.64 1.64 0 0 0-1.63 1.63c0 .9.73 1.63 1.63 1.63m1.4 9.74v-8.37H5.06v8.37h2.8z"/>
+            </svg>
+          </div>
+          <div class="alumni-action-title-group">
+            <div class="alumni-action-title">Verified Thapar Alumni Search</div>
+            <div class="alumni-action-subtitle">Pre-filtered 1-click search for seniors working at ${escapeHtml(targetComp)}</div>
+          </div>
+        </div>
+
+        <!-- Parameter Specifications Pill Grid -->
+        <div class="alumni-spec-grid">
+          <div class="alumni-spec-item">
+            <span class="alumni-spec-label">Searched Employer</span>
+            <span class="alumni-spec-value">${escapeHtml(targetComp)}</span>
+          </div>
+          <div class="alumni-spec-item">
+            <span class="alumni-spec-label">College / Institute</span>
+            <span class="alumni-spec-value">Thapar Institute of Eng. & Tech.</span>
+          </div>
+        </div>
+
+        <!-- Primary Action Button -->
+        <a href="${escapeHtml(linkedinSearchUrl)}" target="_blank" rel="noopener noreferrer" class="alumni-btn-primary" id="btn-linkedin-alumni-search">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 8.76a1.64 1.64 0 0 0 1.63-1.63 1.64 1.64 0 0 0-1.63-1.63 1.64 1.64 0 0 0-1.63 1.63c0 .9.73 1.63 1.63 1.63m1.4 9.74v-8.37H5.06v8.37h2.8z"/>
+          </svg>
+          <span>Find Thapar Alumni at ${escapeHtml(targetComp)} on LinkedIn</span>
+        </a>
+
+        <!-- Secondary Portal Link Button -->
+        <a href="${escapeHtml(schoolPortalUrl)}" target="_blank" rel="noopener noreferrer" class="alumni-btn-secondary">
+          <span class="portal-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M3 7v14M21 7v14M6 7V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v3M9 21v-4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v4"></path></svg></span>
+          <span>Official TIET School Directory (Filter by ${escapeHtml(targetComp)})</span>
+        </a>
+      </div>
+
+      <!-- Senior Outreach Best Practices Card -->
+      <div class="alumni-tips-card">
+        <div class="alumni-tips-header">
+          <span class="alumni-tips-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></span>
+          <span class="alumni-tips-title">Cold Outreach Tips for Seniors</span>
+        </div>
+        <ul class="alumni-tips-list">
+          <li>
+            <span class="tip-num">1</span>
+            <span><strong>Mention your details:</strong> "Hi [Name], I'm a 3rd/4th year [Branch] student at Thapar currently preparing for ${escapeHtml(targetComp)}..."</span>
+          </li>
+          <li>
+            <span class="tip-num">2</span>
+            <span><strong>Ask targeted questions:</strong> Inquire about specific round expectations, team tech stacks, or day-to-day work rather than generic advice.</span>
+          </li>
+          <li>
+            <span class="tip-num">3</span>
+            <span><strong>Referrals:</strong> Seniors are usually happy to help fellow Thaparians when asked politely with a 1-page resume attached.</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  `;
+}
+function resetChatForCompany(companyName, roleName) {
+  chatHistory = [];
+  const comp = (companyName || "").trim() || "Target Company";
+  const r = (roleName || "").trim() || "Technical Role";
+
+  // Clear chat input
+  const inputEl = document.getElementById("chat-input");
+  if (inputEl) inputEl.value = "";
+
+  // Update active company banner in Doubt Solver
+  const banner = document.getElementById("chat-active-company-banner");
+  const bannerText = document.getElementById("chat-context-text");
+  if (banner && bannerText) {
+    banner.style.display = "flex";
+    bannerText.innerHTML = `Asking about: <strong>${escapeHtml(comp)}</strong> <span style="opacity:0.8;">(${escapeHtml(r)})</span>`;
+  }
+
+  // Refresh query chips with contextual questions tailored to this company & role
+  const chipsContainer = document.getElementById("chat-query-chips");
+  if (chipsContainer) {
+    chipsContainer.innerHTML = `
+      <button class="chip" data-q="What DSA and core technical topics were asked by ${escapeHtml(comp)} at Thapar?">Past Exam Topics</button>
+      <button class="chip" data-q="Is there any bond or service agreement at ${escapeHtml(comp)}?">Bond Check</button>
+      <button class="chip" data-q="What is the real monthly in-hand take-home salary for ${escapeHtml(comp)}?">In-Hand Salary</button>
+      <button class="chip" data-q="What mistakes should I avoid in ${escapeHtml(comp)} interview rounds?">Interview Tips</button>
+      <button class="chip" data-q="What is the real work-life balance for freshers at ${escapeHtml(comp)}?">Work-Life Balance</button>
+    `;
+    chipsContainer.querySelectorAll(".chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        const inp = document.getElementById("chat-input");
+        if (inp) {
+          inp.value = chip.getAttribute("data-q");
+          sendChatMessage();
+        }
+      });
+    });
+  }
+
+  // Reset chat messages with fresh customized welcome bubble for the new company
+  const box = document.getElementById("chat-messages");
+  if (box) {
+    box.innerHTML = "";
+    const welcomeBubble = document.createElement("div");
+    welcomeBubble.className = "chat-bubble chat-assistant";
+    welcomeBubble.innerHTML = `
+      Hi! I have gathered all college placement records, past interview questions, real salary details, and employee reviews for <strong>${escapeHtml(comp)}</strong> (<em>${escapeHtml(r)}</em>).<br><br>
+      Ask me anything—like real monthly in-hand salary, what was asked in past rounds, service bonds, or work culture!
+    `;
+    box.appendChild(welcomeBubble);
+    scrollChatToBottom();
+  }
+}
+
 async function sendChatMessage() {
   const inputEl = document.getElementById("chat-input");
   const query = inputEl.value.trim();
   if (!query) return;
 
   inputEl.value = "";
+  inputEl.style.height = "auto";
   appendMessage("user", query);
 
   if (!currentDossier) {
-    appendMessage("assistant", "> ⚠️ **Notice:** Please run or load a company audit first to supply the necessary campus context.");
+    appendMessage("assistant", "> **Notice:** Please analyze a company first so I can answer questions about it.");
     return;
   }
 
   chatHistory.push({ role: "user", content: query });
-  const assistantBubble = appendMessage("assistant", "⚡ *Consulting Placement Master DB, verified reviews, and compensation records...*");
+  const assistantBubble = appendMessage("assistant", "*Checking company records, reviews, and salary data...*");
 
   try {
+    const extraNotes = document.getElementById("input-additional-notes") ? document.getElementById("input-additional-notes").value.trim() : "";
+    const eligText = document.getElementById("input-eligibility") ? document.getElementById("input-eligibility").value.trim() : "";
+    const skillsText = document.getElementById("input-skills") ? document.getElementById("input-skills").value.trim() : "";
+    const locText = document.getElementById("input-location") ? document.getElementById("input-location").value.trim() : "";
+    const ctcText = document.getElementById("input-ctc") ? document.getElementById("input-ctc").value.trim() : "";
+
+    const enrichedContext = {
+      ...(currentDossier || {}),
+      portal_additional_notes: extraNotes,
+      portal_eligibility: eligText,
+      portal_skills: skillsText,
+      portal_location: locText,
+      portal_claimed_ctc: ctcText
+    };
+
     const res = await fetch(`${BACKEND_URL}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         company_name: currentDossier.company_name,
-        context: currentDossier,
-        messages: chatHistory
+        context: enrichedContext,
+        messages: chatHistory,
+        provider: currentProvider
       })
     });
 
@@ -1336,7 +2348,7 @@ async function renderMarkdown(container, text, isFinal = false) {
     const unescaped = unescapeHtml(code);
     return `<div class="mermaid-diagram-card">
       <div class="mermaid-diagram-header">
-        <span class="mermaid-badge">📊 Decision Flowchart / Strategy Map</span>
+        <span class="mermaid-badge">Decision Flowchart / Strategy Map</span>
         <button class="mermaid-copy-btn" title="Copy Mermaid Definition">Copy</button>
       </div>
       <div class="mermaid">${escapeHtml(unescaped)}</div>
@@ -1344,6 +2356,13 @@ async function renderMarkdown(container, text, isFinal = false) {
   });
 
   container.innerHTML = html;
+
+  // Post-process all anchor links to guarantee target="_blank" and rel="noopener noreferrer"
+  container.querySelectorAll("a").forEach(a => {
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener noreferrer");
+    a.classList.add("chat-external-link");
+  });
 
   // Add click listener for copy buttons
   container.querySelectorAll(".mermaid-copy-btn").forEach(btn => {
@@ -1364,6 +2383,38 @@ async function renderMarkdown(container, text, isFinal = false) {
   }
 }
 
+function sanitizeMermaidCode(code) {
+  if (!code) return "";
+  let clean = code.trim();
+  // Strip markdown code fences if present
+  if (clean.startsWith("```mermaid")) clean = clean.slice(10);
+  else if (clean.startsWith("```")) clean = clean.slice(3);
+  if (clean.endsWith("```")) clean = clean.slice(0, -3);
+  clean = clean.trim();
+
+  // Strip escaped HTML if any
+  clean = unescapeHtml(clean);
+
+  // If code does not start with standard diagram keyword, prepend graph TD
+  const firstLine = clean.split("\n").map(l => l.trim()).find(l => l.length > 0) || "";
+  const validHeaders = ["graph ", "flowchart ", "sequenceDiagram", "classDiagram", "stateDiagram", "erDiagram", "gantt", "pie", "journey"];
+  const hasValidHeader = validHeaders.some(h => firstLine.startsWith(h));
+  if (!hasValidHeader) {
+    clean = "graph TD\n" + clean;
+  }
+
+  // Quote unquoted node labels with parentheses or special chars:
+  // e.g., A[Round 1 (DSA & OS)] -> A["Round 1 (DSA & OS)"]
+  clean = clean.replace(/([A-Za-z0-9_]+)\[([^"\]\n]+)\]/g, (match, id, text) => {
+    const trimmed = text.trim();
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) return match;
+    const safeText = trimmed.replace(/"/g, "'");
+    return `${id}["${safeText}"]`;
+  });
+
+  return clean;
+}
+
 async function compileMermaidInElement(container) {
   const nodes = container.querySelectorAll(".mermaid:not([data-processed='true'])");
   if (!nodes || nodes.length === 0) return;
@@ -1375,18 +2426,72 @@ async function compileMermaidInElement(container) {
 
     node.setAttribute("data-raw-code", rawCode);
     const uniqueId = `mermaid-graph-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`;
+    const candidateCode = sanitizeMermaidCode(rawCode);
 
+    // Pass 1: Try rendering locally sanitized code
     try {
-      const { svg } = await mermaid.render(uniqueId, rawCode);
+      const { svg } = await mermaid.render(uniqueId, candidateCode);
       node.innerHTML = svg;
+      node.setAttribute("data-raw-code", candidateCode);
       node.setAttribute("data-processed", "true");
-    } catch (err) {
-      console.warn("[RecruitSage] Mermaid parse error:", err);
+      continue;
+    } catch (err1) {
+      console.warn("[Recruit Copilot] Mermaid Pass 1 parse error:", err1.message || err1);
       const stray = document.getElementById(uniqueId);
       if (stray) stray.remove();
+      document.querySelectorAll(`[id*="${uniqueId}"]`).forEach(el => el.remove());
+    }
 
+    // Pass 2: LLM-as-a-Judge Evaluation & Auto-Repair
+    console.log("[Recruit Copilot] Invoking LLM-as-a-Judge to evaluate & repair Mermaid syntax...");
+    const judgeId = `mermaid-judge-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`;
+    let repairedSuccessfully = false;
+
+    try {
+      const judgeResp = await fetch(`${BACKEND_URL}/api/evaluate-mermaid`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mermaid_code: candidateCode || rawCode,
+          error: "Mermaid client syntax error during parsing",
+          provider: currentProvider || "gemini"
+        })
+      });
+
+      if (judgeResp.ok) {
+        const judgeData = await judgeResp.json();
+        if (judgeData && judgeData.corrected_code) {
+          const fixedSanitized = sanitizeMermaidCode(judgeData.corrected_code);
+          const { svg } = await mermaid.render(judgeId, fixedSanitized);
+          node.innerHTML = svg;
+          node.setAttribute("data-raw-code", fixedSanitized);
+          node.setAttribute("data-processed", "true");
+          repairedSuccessfully = true;
+
+          // Annotate diagram header with judge validation badge
+          const card = node.closest(".mermaid-diagram-card");
+          if (card) {
+            const badge = card.querySelector(".mermaid-badge");
+            if (badge && !badge.querySelector(".mermaid-judge-pill")) {
+              const judgePill = document.createElement("span");
+              judgePill.className = "mermaid-judge-pill";
+              judgePill.title = `Evaluated and corrected by ${judgeData.fixed_by || "LLM Judge"}`;
+              judgePill.innerHTML = `Fixed by LLM Judge`;
+              badge.appendChild(judgePill);
+            }
+          }
+        }
+      }
+    } catch (judgeErr) {
+      console.warn("[Recruit Copilot] LLM Judge evaluation failed:", judgeErr);
+      const strayJudge = document.getElementById(judgeId);
+      if (strayJudge) strayJudge.remove();
+      document.querySelectorAll(`[id*="${judgeId}"]`).forEach(el => el.remove());
+    }
+
+    if (!repairedSuccessfully) {
       node.innerHTML = `<pre class="mermaid-fallback"><code>${escapeHtml(rawCode)}</code></pre>
-        <div class="mermaid-error-note">⚠️ Flowchart preview (syntax check: ensure arrows like --&gt; have valid nodes)</div>`;
+        <div class="mermaid-error-note">Flowchart preview (syntax check: ensure arrows like --&gt; have valid nodes)</div>`;
       node.setAttribute("data-processed", "true");
     }
   }
@@ -1408,6 +2513,10 @@ function fallbackMarkdown(text) {
   out = out.replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>');
   // Italic
   out = out.replace(/\*(.*?)\*/gim, '<em>$1</em>');
+  // Markdown links [text](url)
+  out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/gim, '<a href="$2" target="_blank" rel="noopener noreferrer" class="chat-external-link">$1</a>');
+  // Raw URLs (not already inside href)
+  out = out.replace(/(^|[^"'>])(https?:\/\/[^\s<]+)/gim, '$1<a href="$2" target="_blank" rel="noopener noreferrer" class="chat-external-link">$2</a>');
   // Inline code
   out = out.replace(/`([^`]+)`/gim, '<code>$1</code>');
   // Blockquotes

@@ -4,11 +4,12 @@ from typing import List, Optional, Dict, Any
 class DriveExtractionRequest(BaseModel):
     raw_page_text: str
     page_url: Optional[str] = ""
+    provider: Optional[str] = "gemini"
 
 class DriveExtractionResponse(BaseModel):
-    company_name: str
-    role: str
-    ctc_text: str
+    company_name: Optional[str] = "Unknown Company"
+    role: Optional[str] = "Technical Role"
+    ctc_text: Optional[str] = "Not Disclosed"
     location: Optional[str] = ""
     job_type: Optional[str] = ""
     probation_or_bond_note: Optional[str] = ""
@@ -16,10 +17,23 @@ class DriveExtractionResponse(BaseModel):
     eligibility_summary: Optional[str] = ""
     skills_required: List[str] = []
     clean_jd_summary: Optional[str] = ""
+    additional_details: Optional[str] = ""
+    active_provider: Optional[str] = "gemini"
 
 class PdfUrlExtractRequest(BaseModel):
     url: str
     auto_parse: Optional[bool] = True
+
+class MermaidEvaluationRequest(BaseModel):
+    mermaid_code: str
+    error: Optional[str] = ""
+    provider: Optional[str] = "gemini"
+
+class MermaidEvaluationResponse(BaseModel):
+    valid: bool = True
+    corrected_code: str
+    original_code: str
+    fixed_by: str = "gemini"
 
 class PrepTopicMatrixItem(BaseModel):
     category: str
@@ -49,6 +63,10 @@ class RoundTacticItem(BaseModel):
     actionable_prep_strategy: str
 
 class DeepPrepGuide(BaseModel):
+    target_company: Optional[str] = ""
+    target_role: Optional[str] = ""
+    thapar_past_questions: List['PastQuestionItem'] = []
+    other_campus_questions: List['PastQuestionItem'] = []
     topic_matrix: List[PrepTopicMatrixItem] = []
     coding_archetypes: List[CodingArchetypeItem] = []
     core_cs_drilldown: List[CoreCSDrilldownItem] = []
@@ -69,6 +87,7 @@ class CompanyAnalysisRequest(BaseModel):
     jd_text: Optional[str] = ""
     raw_page_text: Optional[str] = ""
     additional_context: Optional[str] = ""
+    provider: Optional[str] = "gemini"
 
 class RedFlagItem(BaseModel):
     category: str
@@ -116,6 +135,9 @@ class PastQuestionItem(BaseModel):
     tags: Optional[str] = ""
     notes: Optional[str] = ""
     source: Optional[str] = "Placement Master DB"
+    source_drive: Optional[str] = ""
+    source_url: Optional[str] = ""
+    source_type: Optional[str] = "database"
 
 class CampusIntel(BaseModel):
     matched_company_name: str
@@ -123,8 +145,15 @@ class CampusIntel(BaseModel):
     visited_previously: bool
     historical_visits: List[HistoricalVisitItem] = []
     past_questions: List[PastQuestionItem] = []
+    thapar_past_questions: List[PastQuestionItem] = []
+    other_campus_questions: List[PastQuestionItem] = []
+    actual_database_questions: List[PastQuestionItem] = []
+    web_researched_questions: List[Dict[str, Any]] = []
     topic_breakdown: Optional[CompanyTopicBreakdown] = None
     deep_prep: Optional[Dict[str, Any]] = None
+    additional_details: Optional[str] = ""
+
+DeepPrepGuide.model_rebuild()
 
 class CompensationAnalysis(BaseModel):
     claimed_ctc: str
@@ -134,6 +163,13 @@ class CompensationAnalysis(BaseModel):
     bond_or_penalties: str
     hidden_traps: List[str] = []
 
+class ReviewSourceItem(BaseModel):
+    name: str
+    url: str
+    description: Optional[str] = ""
+    badge: Optional[str] = "Reviews"
+    icon: Optional[str] = ""
+
 class CultureAndSentiment(BaseModel):
     overall_rating: Optional[str] = "N/A"
     work_life_balance: str
@@ -142,6 +178,7 @@ class CultureAndSentiment(BaseModel):
     verified_reviews_count: Optional[int] = 0
     key_pros: List[str] = []
     key_cons: List[str] = []
+    review_sources: List[ReviewSourceItem] = []
 
 class AlumniLink(BaseModel):
     title: str
@@ -149,6 +186,7 @@ class AlumniLink(BaseModel):
     url: str
     name: Optional[str] = ""
     headline: Optional[str] = ""
+    school_portal_url: Optional[str] = ""
     is_profile: Optional[bool] = False
     batch_info: Optional[str] = ""
     source_type: Optional[str] = "LinkedIn"
@@ -183,6 +221,7 @@ class DossierResponse(BaseModel):
     prep_guide: Dict[str, Any] = Field(default_factory=dict)
     raw_sources_count: int = 0
     evaluation: Optional[EvaluationReport] = None
+    active_provider: Optional[str] = "gemini"
 
 class ChatMessage(BaseModel):
     role: str # "user" or "assistant"
@@ -192,3 +231,4 @@ class ChatQueryRequest(BaseModel):
     company_name: str
     context: Dict[str, Any] # Complete or partial dossier context
     messages: List[ChatMessage]
+    provider: Optional[str] = "gemini"

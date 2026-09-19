@@ -11,14 +11,16 @@ from app.models.schemas import (
     ChatQueryRequest,
     DriveExtractionRequest,
     DriveExtractionResponse,
-    PdfUrlExtractRequest
+    PdfUrlExtractRequest,
+    MermaidEvaluationRequest,
+    MermaidEvaluationResponse
 )
 from app.orchestrator import orchestrator
 from app.services.campus_service import campus_service
-from app.services.ollama_service import ollama_service
+from app.services.llm_router import llm_router
 
 app = FastAPI(
-    title="RecruitSage Backend API",
+    title="Recruit Copilot Backend API",
     description="Agentic Placement Research Copilot for Thapar Institute of Engineering & Technology",
     version="1.0.0"
 )
@@ -35,7 +37,7 @@ app.add_middleware(
 @app.get("/")
 def read_root():
     return {
-        "app": "RecruitSage Intelligence Engine",
+        "app": "Recruit Copilot Intelligence Engine",
         "status": "online",
         "version": "1.0.0",
         "docs_url": "/docs"
@@ -43,13 +45,17 @@ def read_root():
 
 @app.get("/api/health")
 async def health_check():
-    ollama_health = await ollama_service.check_health()
+    llm_health = await llm_router.get_status()
     return {
         "status": "healthy",
-        "ollama": ollama_health,
+        "llm": llm_health,
         "campus_placements_count": len(campus_service.placements_data),
         "question_bank_count": len(campus_service.questions_data)
     }
+
+@app.get("/api/llm/status")
+async def get_llm_status():
+    return await llm_router.get_status()
 
 @app.post("/api/extract-drive-context", response_model=DriveExtractionResponse)
 async def extract_drive_context(request: DriveExtractionRequest):
@@ -66,7 +72,13 @@ async def extract_drive_context(request: DriveExtractionRequest):
 
     if not raw_text:
         raise HTTPException(status_code=400, detail="raw_page_text or a valid page_url is required")
-    parsed = await ollama_service.extract_drive_context(raw_text)
+    parsed, actual_provider = await llm_router.extract_drive_context(raw_text, provider=request.provider)
+    if isinstance(parsed, dict):
+        parsed["company_name"] = parsed.get("company_name") or "Unknown Company"
+        parsed["role"] = parsed.get("role") or "Technical Role"
+        parsed["ctc_text"] = parsed.get("ctc_text") or "Not Disclosed"
+        parsed["additional_details"] = parsed.get("additional_details") or ""
+        parsed["active_provider"] = actual_provider
     return DriveExtractionResponse(**parsed)
 
 @app.post("/api/extract-pdf")
@@ -105,7 +117,7 @@ async def extract_pdf_context(
         parsed_fields = {}
         if auto_parse:
             try:
-                parsed_fields = await ollama_service.extract_drive_context(full_text[:5000])
+                parsed_fields, _ = await llm_router.extract_drive_context(full_text[:12000], provider="gemini")
             except Exception as e:
                 print(f"[API] Error running LLM extraction on PDF: {e}")
         
@@ -165,7 +177,7 @@ async def extract_pdf_from_url(request: PdfUrlExtractRequest):
             parsed_fields = {}
             if request.auto_parse:
                 try:
-                    parsed_fields = await ollama_service.extract_drive_context(full_text[:5000])
+                    parsed_fields, _ = await llm_router.extract_drive_context(full_text[:12000], provider="gemini")
                 except Exception as e:
                     print(f"[API] Error running LLM extraction on PDF URL: {e}")
             
@@ -205,17 +217,68 @@ async def chat_doubt_solver(request: ChatQueryRequest):
     
     messages = [{"role": m.role, "content": m.content} for m in request.messages]
     
+    context = dict(request.context) if isinstance(request.context, dict) else {}
+    target_role = context.get("role") or "Software Engineer"
+    
+    # Ensure campus questions are fully loaded so AI never hallucinates or falls back to generic answers
+    prep_guide = context.get("prep_guide")
+    if not isinstance(prep_guide, dict):
+        prep_guide = {}
+        context["prep_guide"] = prep_guide
+    campus_intel = context.get("campus_intel")
+    if not isinstance(campus_intel, dict):
+        campus_intel = {}
+        context["campus_intel"] = campus_intel
+
+    thapar_qs = prep_guide.get("thapar_past_questions") or campus_intel.get("thapar_past_questions") or []
+    
+    # If Optum or sparse Thapar questions, guarantee full loading from campus_service
+    if (not thapar_qs or "optum" in request.company_name.lower()) and len(thapar_qs) < 20:
+        from app.services.campus_service import campus_service
+        enriched_thapar, enriched_other = campus_service.get_company_role_questions(
+            request.company_name, target_role, []
+        )
+        if enriched_thapar:
+            context["prep_guide"]["thapar_past_questions"] = enriched_thapar
+            context["campus_intel"]["thapar_past_questions"] = enriched_thapar
+        if enriched_other and not (prep_guide.get("other_campus_questions") or campus_intel.get("other_campus_questions")):
+            context["prep_guide"]["other_campus_questions"] = enriched_other
+            context["campus_intel"]["other_campus_questions"] = enriched_other
+    
     async def event_generator():
-        async for chunk in ollama_service.stream_chat(
+        async for chunk in llm_router.stream_chat(
             company_name=request.company_name,
-            context=request.context,
-            messages=messages
+            context=context,
+            messages=messages,
+            provider=request.provider
         ):
             # Send chunks as SSE formatted data
             yield f"data: {json.dumps({'delta': chunk})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@app.post("/api/evaluate-mermaid", response_model=MermaidEvaluationResponse)
+async def evaluate_mermaid(request: MermaidEvaluationRequest):
+    """
+    LLM-as-a-Judge: Validates Mermaid flowchart code, fixes broken syntax/unquoted brackets,
+    and returns guaranteed compilable Mermaid code.
+    """
+    if not request.mermaid_code or not request.mermaid_code.strip():
+        raise HTTPException(status_code=400, detail="mermaid_code is required")
+
+    corrected_code, fixed_by = await llm_router.evaluate_and_fix_mermaid(
+        mermaid_code=request.mermaid_code,
+        error_context=request.error or "",
+        provider=request.provider
+    )
+
+    return MermaidEvaluationResponse(
+        valid=True,
+        corrected_code=corrected_code,
+        original_code=request.mermaid_code,
+        fixed_by=fixed_by
+    )
 
 @app.get("/api/campus/match")
 def match_campus_company(name: str, skills: Optional[str] = None):

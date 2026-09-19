@@ -1,21 +1,26 @@
-// RecruitSage Content Script for recruit.thapar.edu
+// Recruit Copilot Content Script for recruit.thapar.edu
 // High-Precision Extraction Engine for Thapar Placement Portal with Deep Dropdown & PDF Detection
 
 (function () {
-  console.log("[RecruitSage] Content script loaded on recruit.thapar.edu");
+  console.log("[Recruit Copilot] Content script loaded on recruit.thapar.edu");
 
   // 1. Create and inject floating action button (Sleek minimalist capsule)
   function injectFloatingButton() {
-    const existing = document.getElementById("recruitsage-floating-btn");
-    if (existing) existing.remove();
+    // Purge any lingering buttons with old or new IDs
+    const oldBtns = document.querySelectorAll(
+      "#recruitsage-floating-btn, #recruitcopilot-floating-btn, button[id*='recruitsage'], button[id*='recruitcopilot']"
+    );
+    oldBtns.forEach(el => el.remove());
 
-    const logoUrl = chrome.runtime.getURL("icons/recruitsage_icon48.png");
+    const logoUrl = chrome.runtime.getURL("icons/recruitcopilot_icon48.png");
 
     const btn = document.createElement("button");
-    btn.id = "recruitsage-floating-btn";
+    btn.id = "recruitcopilot-floating-btn";
+    btn.setAttribute("title", "Open Recruit Copilot");
     btn.innerHTML = `
-      <img src="${logoUrl}" style="width:18px; height:18px; border-radius:50%; object-fit:cover; display:block; box-shadow: 0 0 6px rgba(16,185,129,0.4);" alt="RecruitSage" />
-      <span>RecruitSage</span>
+      <img src="${logoUrl}" style="width:18px; height:18px; border-radius:50%; object-fit:cover; display:block; box-shadow: 0 0 6px rgba(16,185,129,0.4);" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" alt="Recruit Copilot" />
+      <span style="display:none; width:8px; height:8px; border-radius:50%; background:#10B981; box-shadow: 0 0 6px #10B981;"></span>
+      <span>Recruit Copilot</span>
     `;
 
     btn.style.position = "fixed";
@@ -41,6 +46,7 @@
     btn.style.transition = "all 0.15s cubic-bezier(0.4, 0, 0.2, 1)";
 
     btn.addEventListener("mouseenter", () => {
+      expandAllAccordions();
       btn.style.transform = "translateY(-2px)";
       btn.style.borderColor = "rgba(255, 255, 255, 0.25)";
       btn.style.boxShadow = "0 10px 28px rgba(0, 0, 0, 0.55)";
@@ -53,11 +59,14 @@
     });
 
     btn.addEventListener("click", () => {
-      const data = extractPageData();
-      chrome.storage.local.set({ last_extracted_company: data }, () => {
-        chrome.runtime.sendMessage({ action: "OPEN_SIDEPANEL" });
-        chrome.runtime.sendMessage({ action: "TRIGGER_EXTRACTION_IN_PANEL" });
-      });
+      expandAllAccordions();
+      setTimeout(() => {
+        const data = extractPageData();
+        chrome.storage.local.set({ last_extracted_company: data }, () => {
+          chrome.runtime.sendMessage({ action: "OPEN_SIDEPANEL" });
+          chrome.runtime.sendMessage({ action: "TRIGGER_EXTRACTION_IN_PANEL" });
+        });
+      }, 100);
     });
 
     document.body.appendChild(btn);
@@ -85,82 +94,291 @@
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
+  // ACCORDION AUTO-EXPANDER: Safely opens closed accordions and dropdowns
+  // ─────────────────────────────────────────────────────────────────────────────
+  function expandAllAccordions() {
+    try {
+      // 1. Native <details> elements
+      document.querySelectorAll("details:not([open])").forEach(d => {
+        try { d.open = true; } catch (e) {}
+      });
+
+      // 2. ARIA collapsed triggers
+      document.querySelectorAll("[aria-expanded='false']").forEach(el => {
+        try {
+          const t = (el.innerText || el.textContent || "").toLowerCase();
+          if (/eligib|date|salary|selection|spr|criteria|round|workflow|duty|process|stipend|ctc|bond|schedule|notice/i.test(t)) {
+            el.click();
+          }
+        } catch (e) {}
+      });
+
+      // 3. UI Framework Accordion triggers (Bootstrap, AntD, Angular Material, etc.)
+      const frameworkTriggers = document.querySelectorAll(
+        ".accordion-button.collapsed, " +
+        ".ant-collapse-header[aria-expanded='false'], " +
+        ".mat-expansion-panel:not(.mat-expanded) .mat-expansion-panel-header, " +
+        "[class*='accordion'] [class*='header'], [class*='accordion'] button, " +
+        "[class*='collapse'] [class*='header'], [class*='collapsible']:not(.active)"
+      );
+      frameworkTriggers.forEach(trig => {
+        try {
+          const t = (trig.innerText || trig.textContent || "").toLowerCase();
+          if (/eligib|date|salary|selection|spr|criteria|round|workflow|duty|process|stipend|ctc/i.test(t)) {
+            trig.click();
+          }
+        } catch (e) {}
+      });
+
+      // 4. Superset / Custom placement portal accordion rows (as shown in user's image)
+      const targetHeaderPatterns = [
+        "eligibility criteria",
+        "important dates",
+        "salary information",
+        "selection procedure",
+        "selection process",
+        "hiring workflow",
+        "spr on duty",
+        "bond & agreement",
+        "terms & conditions",
+        "probation period"
+      ];
+
+      document.querySelectorAll("div, button, a, li, tr, span, p, h1, h2, h3, h4, h5, h6").forEach(el => {
+        const raw = (el.innerText || "").trim();
+        if (raw.length < 2 || raw.length > 80) return;
+        const norm = raw.replace(/[\s\n\r>›»\u25BC\u25B2v\^:|]+/g, " ").trim().toLowerCase();
+
+        const isTarget = targetHeaderPatterns.some(pat => norm === pat || norm.startsWith(pat));
+        if (isTarget) {
+          const trigger = el.closest("[role='button'], button, .accordion-item, .card, div") || el;
+          if (!trigger.dataset.copilotExpanded) {
+            const textHasRightChevron = /[>›»\u2192\u25BA]/.test(raw);
+            const iconHasRight = !!trigger.querySelector("[class*='right'], [class*='chevron-right'], [data-icon*='right'], svg");
+            const isAriaClosed = trigger.getAttribute("aria-expanded") === "false";
+            const textHasDown = /[v\u25BC\u25BE\u25B2]/.test(raw);
+            const iconHasDown = !!trigger.querySelector("[class*='down'], [class*='chevron-down'], [data-icon*='down']");
+            const isAriaOpen = trigger.getAttribute("aria-expanded") === "true";
+
+            // If it is closed, click once to expand; if already open (like Salary Information v), do not click!
+            if ((textHasRightChevron || iconHasRight || isAriaClosed) && !(textHasDown || iconHasDown || isAriaOpen)) {
+              trigger.dataset.copilotExpanded = "true";
+              try { trigger.click(); } catch (e) {}
+            }
+          }
+        }
+      });
+    } catch (expErr) {
+      console.warn("[Recruit Copilot] Accordion expansion warning:", expErr);
+    }
+  }
+
+  // Helper: Convert multiline section text into clean sub-bullet items
+  function formatLinesToSubBullets(rawText, maxLines = 16) {
+    if (!rawText) return [];
+
+    const lines = rawText
+      .split(/\r?\n/)
+      .map(l => l.replace(/[\t\r]+/g, " ").trim())
+      .filter(l => l.length > 0 && !/^[\s>›»\u25BC\u25B2v\^:|–—\-]+$/.test(l));
+
+    // Merge consecutive label-value pairs (e.g. "For course:" followed by "B.E./B.Tech")
+    const merged = [];
+    for (let i = 0; i < lines.length; i++) {
+      const cur = lines[i];
+      if (i + 1 < lines.length && /:$/.test(cur) && cur.length < 35 && lines[i + 1].length < 100) {
+        merged.push(`${cur} ${lines[i + 1]}`);
+        i++;
+      } else {
+        merged.push(cur);
+      }
+    }
+
+    const cleaned = merged
+      .map(l => l.replace(/^[•·\u25BA\u25AA*\-–—]+\s*/, "").trim())
+      .filter(l => {
+        if (l.length < 2) return false;
+        if (/^(?:details|information|view|click\s+here|dropdown|accordion|chevron|arrow|expand|collapse)$/i.test(l)) return false;
+        return true;
+      });
+
+    const unique = Array.from(new Set(cleaned)).slice(0, maxLines);
+    return unique.map(l => `  - ${l}`);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
   // DEEP EXTRACTION ENGINE: Accordions, Collapsible Containers & Dropdowns
-  // Specifically captures eligibility criteria, branch cutoffs, CGPA, and
-  // salary breakdown tables that standard innerText misses when collapsed.
   // ─────────────────────────────────────────────────────────────────────────────
   function extractDropdownsAndAccordions() {
+    expandAllAccordions();
+
     const collapsedSections = [];
-    let eligibilitySection = "";
-    let salarySection = "";
+    const bodyText = (document.body ? document.body.innerText : "") || "";
 
-    // 1. Automatically expand native <details> elements
-    const detailsEls = document.querySelectorAll("details");
-    detailsEls.forEach(d => {
-      try {
-        if (!d.open) d.open = true;
-      } catch (e) {}
-    });
+    // Helper: Finds a section by keywords in DOM or regex fallback
+    function locateSection(patterns, regexFallback) {
+      const allEls = document.querySelectorAll("div, button, a, h1, h2, h3, h4, h5, h6, summary, dt, th, label, strong, span, p");
+      let foundContainer = null;
+      let foundHeader = null;
 
-    // 2. Query all collapsible triggers and panels (Bootstrap, Tailwind, custom portal)
-    const candidateNodes = Array.from(document.querySelectorAll(
-      ".accordion-item, .accordion-body, .collapse, .collapsible, [role='tabpanel'], .tab-pane, " +
-      "[aria-expanded], details, .card, .panel, [class*='dropdown'], [class*='accordion'], " +
-      "[id*='eligib'], [id*='salary'], [id*='criteria'], [id*='breakdown'], [id*='selection'], " +
-      "[class*='eligib'], [class*='salary'], [class*='criteria'], [class*='breakdown'], [class*='selection'], " +
-      "table, .table"
-    ));
-
-    const seenTexts = new Set();
-
-    candidateNodes.forEach(node => {
-      // textContent extracts text even from hidden/collapsed DOM nodes (display: none, height: 0)
-      const rawText = (node.textContent || "").replace(/[\t\r]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
-      if (!rawText || rawText.length < 15 || seenTexts.has(rawText)) return;
-      seenTexts.add(rawText);
-
-      // Extract section heading
-      let headerText = "";
-      const headerEl = node.querySelector("h1, h2, h3, h4, h5, h6, .accordion-header, .accordion-button, summary, [class*='title'], [class*='header'], button");
-      if (headerEl) {
-        headerText = headerEl.innerText.trim();
-      } else {
-        const prev = node.previousElementSibling;
-        if (prev && /h[1-6]|button|summary|title|label/i.test(prev.tagName)) {
-          headerText = prev.innerText.trim();
-        } else {
-          headerText = node.getAttribute("id") || node.getAttribute("aria-label") || "";
+      for (const el of allEls) {
+        const raw = (el.innerText || "").trim();
+        if (!raw || raw.length > 80) continue;
+        const norm = raw.replace(/[\s\n\r>›»\u25BC\u25B2v\^:|]+/g, " ").trim().toLowerCase();
+        if (patterns.some(p => norm === p || norm.startsWith(p))) {
+          foundHeader = el;
+          foundContainer = el.closest(".accordion-item, .card, .panel, [class*='accordion'], [class*='card'], [class*='section'], [class*='item'], tr, li") || el.parentElement;
+          break;
         }
       }
 
-      const combined = `${headerText ? headerText + ": " : ""}${rawText}`;
-      const lower = combined.toLowerCase();
+      if (foundHeader && foundContainer) {
+        const bodyEl = foundContainer.querySelector(".accordion-body, .accordion-collapse, .collapse, [class*='content'], [class*='body'], [class*='detail'], [class*='desc'], [role='tabpanel'], [role='region'], table, ul, dl");
+        if (bodyEl && bodyEl !== foundHeader) {
+          const bodyTxt = (bodyEl.innerText || bodyEl.textContent || "").trim();
+          if (bodyTxt.length > 5) return bodyTxt;
+        }
 
-      // Check for Eligibility & Branch Criteria
-      const isEligibility = /eligib|criteria|cgpa|cut[\s\-]?off|branch(?:es)?\s+allowed|academic|backlog|passing\s+year|percentage|10th|12th|coe|cse|enc|ece/i.test(lower);
-      // Check for Salary / CTC / Compensation Breakdown
-      const isSalary = /salary|ctc|breakdown|compensation|stipend|fixed|variable|allowance|retention|bond|perk|gratuity|in[\s\-]?hand|take[\s\-]?home|base\s+pay/i.test(lower);
+        const next = foundHeader.nextElementSibling;
+        if (next && next.textContent.trim().length > 5) {
+          return (next.innerText || next.textContent || "").trim();
+        }
 
-      if (isEligibility) {
-        eligibilitySection += (eligibilitySection ? "\n\n" : "") + combined.slice(0, 1500);
+        const fullText = (foundContainer.innerText || foundContainer.textContent || "").trim();
+        const hText = (foundHeader.innerText || foundHeader.textContent || "").trim();
+        if (fullText.length > hText.length + 5) {
+          return fullText.replace(hText, "").trim();
+        }
       }
-      if (isSalary) {
-        salarySection += (salarySection ? "\n\n" : "") + combined.slice(0, 1500);
+
+      if (regexFallback) {
+        const m = bodyText.match(regexFallback);
+        if (m && m[1]) return m[1].trim();
       }
 
-      collapsedSections.push({
-        title: headerText || "Collapsible Section",
-        text: rawText.slice(0, 1500),
-        is_eligibility: isEligibility,
-        is_salary: isSalary
-      });
+      return "";
+    }
+
+    // 1. Selection Procedure
+    const rawSelection = locateSection(
+      ["selection procedure", "selection process", "hiring workflow", "interview rounds", "recruitment process", "evaluation process", "test pattern"],
+      /(?:Selection\s+Procedure|Selection\s+Process|Hiring\s+Workflow|Interview\s+Process|Recruitment\s+Process)[\s:\-]+([\s\S]{10,800}?)(?=(?:Eligibility|Salary|Important\s+Dates|SPR|Bond|Application\s+Deadline|$))/i
+    );
+
+    // 2. CGPA Cutoff & Eligibility
+    const rawEligibility = locateSection(
+      ["eligibility criteria", "eligibility", "cgpa cutoff", "academic criteria", "branch eligibility", "branches allowed", "degrees allowed"],
+      /(?:Eligibility\s+Criteria|Eligibility|CGPA\s+Cutoff|Branches\s+Allowed|Academic\s+Criteria)[\s:\-]+([\s\S]{10,800}?)(?=(?:Selection|Salary|Important\s+Dates|SPR|Bond|Application\s+Deadline|$))/i
+    );
+
+    // 3. Salary Information & Breakdown
+    const rawSalary = locateSection(
+      ["salary information", "salary details", "ctc breakdown", "compensation", "internship phase", "full time phase", "stipend details", "remuneration"],
+      /(?:Salary\s+Information|CTC\s+Breakdown|Internship\s+Phase|Compensation|Stipend\s+Breakdown)[\s:\-]+([\s\S]{10,800}?)(?=(?:Eligibility|Selection|Important\s+Dates|SPR|Bond|Application\s+Deadline|$))/i
+    );
+
+    // 4. Important Dates & Deadlines
+    let appDeadline = "";
+    const deadlineMatch = bodyText.match(/(?:Application\s+Deadline|Apply\s+Before|Registration\s+Closes)[\s:\-]+([^\n\r]+(?:\n[^\n\r]+)?)/i);
+    if (deadlineMatch && deadlineMatch[1]) {
+      appDeadline = deadlineMatch[1].trim().replace(/\n+/g, " ");
+    }
+
+    const rawDates = locateSection(
+      ["important dates", "schedule", "timeline", "key dates", "placement schedule"],
+      /(?:Important\s+Dates|Timeline|Placement\s+Schedule)[\s:\-]+([\s\S]{10,600}?)(?=(?:Eligibility|Salary|Selection|SPR|Bond|Application\s+Deadline|$))/i
+    );
+
+    // 5. Probation & Bond Terms
+    const rawBond = locateSection(
+      ["probation period", "service agreement", "bond terms", "training period", "retention agreement", "bond & agreement"],
+      /(?:Probation(?:\s+Period)?|Service\s+Agreement|Bond(?:\s+Period)?|Training\s+Period)[\s:\-]+([^\n\r]+(?:\n[^\n\r]+)?)/i
+    );
+
+    // 6. SPR on Duty
+    const rawSpr = locateSection(
+      ["spr on duty", "student placement representative", "student coordinator", "placement coordinator", "spr contact"],
+      /(?:SPR\s+on\s+Duty|Student\s+Placement\s+Representative|Placement\s+Coordinator)[\s:\-]+([^\n\r]+(?:\n[^\n\r]+)?)/i
+    );
+
+    // Format all sections into clean sub-bullet points
+    const selectionBullets = formatLinesToSubBullets(rawSelection);
+    const eligibilityBullets = formatLinesToSubBullets(rawEligibility);
+    const salaryBullets = formatLinesToSubBullets(rawSalary);
+    
+    const datesBullets = [];
+    if (appDeadline) {
+      datesBullets.push(`  - Application Deadline: ${appDeadline}`);
+    }
+    datesBullets.push(...formatLinesToSubBullets(rawDates).filter(b => !appDeadline || !b.includes(appDeadline.slice(0, 15))));
+
+    const bondBullets = formatLinesToSubBullets(rawBond);
+    const sprBullets = formatLinesToSubBullets(rawSpr);
+
+    // Also scan any other collapsible containers on the page
+    const candidateNodes = Array.from(document.querySelectorAll(
+      ".accordion-item, .accordion-body, .collapse, .collapsible, [role='tabpanel'], .tab-pane, " +
+      "[aria-expanded], details, .card, .panel, [class*='dropdown'], [class*='accordion']"
+    ));
+    const seenTexts = new Set();
+    const otherSections = [];
+
+    candidateNodes.forEach(node => {
+      const txt = (node.textContent || "").replace(/[\t\r]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
+      if (!txt || txt.length < 25 || seenTexts.has(txt)) return;
+      seenTexts.add(txt);
+
+      const headerEl = node.querySelector("h1, h2, h3, h4, h5, h6, .accordion-header, .accordion-button, summary, [class*='title'], [class*='header'], button");
+      const title = headerEl ? headerEl.innerText.trim() : (node.getAttribute("id") || "Dropdown Section");
+      const titleLow = title.toLowerCase();
+
+      if (!/eligib|salary|date|select|spr|bond|criteria|deadline/i.test(titleLow) && txt.length > 30) {
+        otherSections.push({
+          title: title,
+          bullets: formatLinesToSubBullets(txt, 6)
+        });
+      }
     });
+
+    // Assemble the complete structured bullet list for the Additional Details box
+    const bulletSections = [];
+
+    if (selectionBullets.length > 0) {
+      bulletSections.push(`• Selection Procedure:\n${selectionBullets.join("\n")}`);
+    }
+    if (eligibilityBullets.length > 0) {
+      bulletSections.push(`• CGPA Cutoff & Eligibility:\n${eligibilityBullets.join("\n")}`);
+    }
+    if (salaryBullets.length > 0) {
+      bulletSections.push(`• Salary & Stipend Breakdown:\n${salaryBullets.join("\n")}`);
+    }
+    if (datesBullets.length > 0) {
+      bulletSections.push(`• Important Dates & Deadlines:\n${datesBullets.join("\n")}`);
+    }
+    if (bondBullets.length > 0) {
+      bulletSections.push(`• Probation & Bond Terms:\n${bondBullets.join("\n")}`);
+    }
+    if (sprBullets.length > 0) {
+      bulletSections.push(`• SPR on Duty:\n${sprBullets.join("\n")}`);
+    }
+    otherSections.forEach(os => {
+      if (os.bullets.length > 0) {
+        bulletSections.push(`• ${os.title}:\n${os.bullets.join("\n")}`);
+      }
+    });
+
+    const formattedBullets = bulletSections.join("\n\n");
 
     return {
       collapsedSections,
-      eligibilitySection: eligibilitySection.trim(),
-      salarySection: salarySection.trim(),
-      allCollapsedText: collapsedSections.map(s => `[SECTION: ${s.title}]\n${s.text}`).join("\n\n").slice(0, 6000)
+      eligibilitySection: rawEligibility,
+      salarySection: rawSalary,
+      selectionSection: rawSelection,
+      datesSection: rawDates || appDeadline,
+      sprSection: rawSpr,
+      bondSection: rawBond,
+      formattedBullets,
+      allCollapsedText: bulletSections.join("\n\n").slice(0, 6000)
     };
   }
 
@@ -413,7 +631,7 @@
       companyName = "";
     }
 
-    console.log("[RecruitSage Extractor] Extracted:", { 
+    console.log("[Recruit Copilot Extractor] Extracted:", { 
       companyName, 
       role, 
       ctcText: ctcText.slice(0, 60), 
@@ -431,6 +649,7 @@
       deadline: deadline.trim(),
       eligibility_text: eligibility.trim(),
       jd_text: jdText.trim(),
+      additional_details: dropdownData.formattedBullets,
       raw_page_text: pageText.trim().slice(0, 10000),
       page_url: window.location.href,
       detected_pdfs: detectedPdfs,
@@ -444,8 +663,12 @@
   // 3. Listen for requests from the Side Panel
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "EXTRACT_PAGE_DATA") {
-      const data = extractPageData();
-      sendResponse(data);
+      expandAllAccordions();
+      setTimeout(() => {
+        const data = extractPageData();
+        sendResponse(data);
+      }, 120);
+      return true; // Keep message channel open for async sendResponse
     }
   });
 
@@ -455,4 +678,15 @@
   } else {
     injectFloatingButton();
   }
+
+  // Ensure button stays present & updated even across SPA view changes
+  setInterval(() => {
+    const oldBtn = document.getElementById("recruitsage-floating-btn");
+    if (oldBtn) {
+      oldBtn.id = "recruitcopilot-floating-btn";
+      oldBtn.setAttribute("title", "Open Recruit Copilot");
+      const span = oldBtn.querySelector("span:last-child");
+      if (span) span.textContent = "Recruit Copilot";
+    }
+  }, 1000);
 })();

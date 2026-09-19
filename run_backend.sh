@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-# RecruitSage Backend Launcher
+# Recruit Copilot Backend Launcher
 cd "$(dirname "$0")"
 
 echo "=================================================="
-echo "⚡ Starting RecruitSage Backend (FastAPI)"
+echo "Starting Recruit Copilot Backend (FastAPI)"
 echo "   Endpoint: http://localhost:8000"
 echo "   Docs URL: http://localhost:8000/docs"
 echo "=================================================="

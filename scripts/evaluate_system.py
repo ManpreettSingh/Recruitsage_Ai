@@ -29,7 +29,7 @@ client = TestClient(app)
 
 def print_header(title):
     print("\n" + "=" * 70)
-    print(f"🔬 {title.upper()}")
+    print(f"[MODULE] {title.upper()}")
     print("=" * 70)
 
 def evaluate_module_1_campus_master_db():
@@ -73,14 +73,14 @@ def evaluate_module_1_campus_master_db():
         if deep_prep and len(deep_prep.get("topic_matrix", [])) > 0:
             deep_prep_generated += 1
 
-        print(f"  • Query: '{query:<24}' -> Matched: '{matched_name:<20}' | Qs: {len(past_qs):<2} | Deep Prep: {'✓' if deep_prep else '✗'}")
+        print(f"  • Query: '{query:<24}' -> Matched: '{matched_name:<20}' | Qs: {len(past_qs):<2} | Deep Prep: {'[PASS]' if deep_prep else '[FAIL]'}")
 
     accuracy_score = (correct_matches / len(test_cases)) * 100
     questions_coverage_score = (total_questions_matched / len(test_cases)) * 100
     prep_generation_score = (deep_prep_generated / len(test_cases)) * 100
 
     overall_m1_score = round(0.4 * accuracy_score + 0.3 * questions_coverage_score + 0.3 * prep_generation_score, 1)
-    print(f"\n📊 Module 1 Benchmark Score: {overall_m1_score}/100 (Resolution: {accuracy_score}%, Qs Coverage: {questions_coverage_score}%, Prep: {prep_generation_score}%)")
+    print(f"\n[SCORE] Module 1 Benchmark Score: {overall_m1_score}/100 (Resolution: {accuracy_score}%, Qs Coverage: {questions_coverage_score}%, Prep: {prep_generation_score}%)")
     return {"module": "Campus Master DB", "score": overall_m1_score, "details": f"{correct_matches}/{len(test_cases)} tests passed"}
 
 def evaluate_module_2_dropdown_dom_extraction():
@@ -117,7 +117,7 @@ def evaluate_module_2_dropdown_dom_extraction():
     })
 
     if res.status_code != 200:
-        print(f"  ❌ LLM extraction failed with status {res.status_code}")
+        print(f"  [ERROR] LLM extraction failed with status {res.status_code}")
         return {"module": "Dropdown & DOM Extractor", "score": 40.0, "details": "HTTP error"}
 
     data = res.json()
@@ -139,11 +139,11 @@ def evaluate_module_2_dropdown_dom_extraction():
     ]
 
     for label, passed, pts in checks:
-        print(f"    - {label}: {'✓ PASS' if passed else '✗ FAIL'} (+{pts if passed else 0} pts)")
+        print(f"    - {label}: {'[PASS]' if passed else '[FAIL]'} (+{pts if passed else 0} pts)")
         if passed:
             score += pts
 
-    print(f"\n📊 Module 2 Benchmark Score: {score}/100")
+    print(f"\n[SCORE] Module 2 Benchmark Score: {score}/100")
     return {"module": "Dropdown & DOM Extractor", "score": float(score), "details": f"{score}/100 checklist score"}
 
 def evaluate_module_3_pdf_document_pipeline():
@@ -190,7 +190,7 @@ def evaluate_module_3_pdf_document_pipeline():
     )
 
     if res.status_code != 200:
-        print(f"  ❌ PDF extract failed: {res.text}")
+        print(f"  [ERROR] PDF extract failed: {res.text}")
         return {"module": "PDF Ingestion Pipeline", "score": 30.0, "details": "PDF upload failed"}
 
     data = res.json()
@@ -204,20 +204,20 @@ def evaluate_module_3_pdf_document_pipeline():
     score = 0
     if data.get("word_count", 0) > 15:
         score += 40
-        print("    ✓ Text stream extracted successfully (+40 pts)")
+        print("    [PASS] Text stream extracted successfully (+40 pts)")
     if data.get("num_pages", 0) >= 1:
         score += 20
-        print("    ✓ Page numbering validated (+20 pts)")
+        print("    [PASS] Page numbering validated (+20 pts)")
     
     parsed = data.get("parsed_fields", {})
     if "marquardt" in str(parsed.get("company_name", "")).lower():
         score += 20
-        print("    ✓ LLM parsed company name from PDF (+20 pts)")
+        print("    [PASS] LLM parsed company name from PDF (+20 pts)")
     if "9.5" in str(parsed.get("ctc_text", "")) or "7.5" in str(parsed.get("ctc_text", "")):
         score += 20
-        print("    ✓ LLM parsed CTC from PDF (+20 pts)")
+        print("    [PASS] LLM parsed CTC from PDF (+20 pts)")
 
-    print(f"\n📊 Module 3 Benchmark Score: {score}/100")
+    print(f"\n[SCORE] Module 3 Benchmark Score: {score}/100")
     return {"module": "PDF Ingestion Pipeline", "score": float(score), "details": f"{data.get('word_count')} words extracted"}
 
 def evaluate_module_4_web_research_and_reviews():
@@ -236,7 +236,7 @@ def evaluate_module_4_web_research_and_reviews():
     try:
         reddit_data, review_data, red_flag_data, alumni_data = asyncio.run(gather_all())
     except Exception as e:
-        print(f"  ❌ Web research exception: {e}")
+        print(f"  [ERROR] Web research exception: {e}")
         reddit_data, review_data, red_flag_data, alumni_data = [], [], [], []
 
     elapsed = time.time() - start_t
@@ -255,18 +255,18 @@ def evaluate_module_4_web_research_and_reviews():
     score = 0
     if review_count >= 1 or reddit_count >= 1:
         score += 30
-        print("    ✓ Reviews / community sentiment retrieved (+30 pts)")
+        print("    [PASS] Reviews / community sentiment retrieved (+30 pts)")
     if flag_count >= 1:
         score += 30
-        print("    ✓ Red-flag snippets mined successfully (+30 pts)")
+        print("    [PASS] Red-flag snippets mined successfully (+30 pts)")
     if alumni_count >= 3:
         score += 25
-        print("    ✓ Alumni school graph & precision search verified (+25 pts)")
+        print("    [PASS] Alumni school graph & precision search verified (+25 pts)")
     if elapsed < 12.0:
         score += 15
-        print("    ✓ Low-latency concurrent search performance (+15 pts)")
+        print("    [PASS] Low-latency concurrent search performance (+15 pts)")
 
-    print(f"\n📊 Module 4 Benchmark Score: {score}/100")
+    print(f"\n[SCORE] Module 4 Benchmark Score: {score}/100")
     return {"module": "Web Research & Reviews", "score": float(score), "details": f"{review_count + flag_count + reddit_count} sources, {alumni_count} alumni in {elapsed:.2f}s"}
 
 def evaluate_module_5_dossier_synthesis_and_anti_generic_prep():
@@ -289,7 +289,7 @@ def evaluate_module_5_dossier_synthesis_and_anti_generic_prep():
     elapsed = time.time() - start_t
 
     if res.status_code != 200:
-        print(f"  ❌ Analyze failed with status {res.status_code}: {res.text}")
+        print(f"  [ERROR] Analyze failed with status {res.status_code}: {res.text}")
         return {"module": "Dossier Synthesis", "score": 20.0, "details": "Analysis failed"}, None
 
     dossier = res.json()
@@ -315,7 +315,7 @@ def evaluate_module_5_dossier_synthesis_and_anti_generic_prep():
     tactics = prep.get("round_tactics", [])
     cross_campus = prep.get("cross_campus_intel", "")
 
-    print("\n  🔍 Detailed Preparation Intelligence Verification:")
+    print("\n  [VERIFY] Detailed Preparation Intelligence Verification:")
     print(f"  • Topic Weight Matrix count: {len(topic_matrix)}")
     for tm in topic_matrix[:3]:
         print(f"    - {tm.get('category')}: {tm.get('weight_percentage')}% | Freq: {tm.get('drive_frequency')}")
@@ -350,30 +350,30 @@ def evaluate_module_5_dossier_synthesis_and_anti_generic_prep():
     for bp in banned_phrases:
         if bp in all_prep_text:
             anti_generic_score -= 25
-            print(f"  ⚠️ Warning: Found generic boilerplate phrase '{bp}' (-25 pts)")
+            print(f"  [WARN] Warning: Found generic boilerplate phrase '{bp}' (-25 pts)")
 
     # Scoring Module 5
     score = 0
     if len(topic_matrix) >= 3:
         score += 20
-        print("    ✓ Topic weight matrix populated with exact % (+20 pts)")
+        print("    [PASS] Topic weight matrix populated with exact % (+20 pts)")
     if len(archetypes) >= 4 and any("leetcode" in str(a.get("example_problems")).lower() for a in archetypes):
         score += 25
-        print("    ✓ Coding archetypes with LeetCode problems & dry-run tips (+25 pts)")
+        print("    [PASS] Coding archetypes with LeetCode problems & dry-run tips (+25 pts)")
     if len(core_cs) >= 3:
         score += 20
-        print("    ✓ Core CS subject checklists (OS, DBMS, CN, OOPS) (+20 pts)")
+        print("    [PASS] Core CS subject checklists (OS, DBMS, CN, OOPS) (+20 pts)")
     if len(tactics) >= 3:
         score += 15
-        print("    ✓ Round-by-round strategies & trap warnings (+15 pts)")
+        print("    [PASS] Round-by-round strategies & trap warnings (+15 pts)")
     if len(cross_campus) > 50:
         score += 10
-        print("    ✓ Cross-campus drive intelligence insights (+10 pts)")
+        print("    [PASS] Cross-campus drive intelligence insights (+10 pts)")
     if anti_generic_score == 100:
         score += 10
-        print("    ✓ Anti-generic validation passed: 0% boilerplate (+10 pts)")
+        print("    [PASS] Anti-generic validation passed: 0% boilerplate (+10 pts)")
 
-    print(f"\n📊 Module 5 Benchmark Score: {score}/100")
+    print(f"\n[SCORE] Module 5 Benchmark Score: {score}/100")
     return {"module": "Dossier Synthesis & Prep", "score": float(score), "details": f"{len(archetypes)} archetypes, {len(topic_matrix)} topics, {len(tactics)} rounds"}, dossier
 
 def evaluate_module_6_qa_evaluation_agent(dossier=None):
@@ -396,7 +396,7 @@ def evaluate_module_6_qa_evaluation_agent(dossier=None):
     eval_rep = dossier.get("evaluation")
 
     if not eval_rep:
-        print("  ❌ No evaluation report found in dossier")
+        print("  [ERROR] No evaluation report found in dossier")
         return {"module": "QA Evaluator Agent", "score": 20.0, "details": "Missing evaluation report"}
 
     print("  QA Evaluation Report Metrics:")
@@ -416,10 +416,10 @@ def evaluate_module_6_qa_evaluation_agent(dossier=None):
     notes = eval_rep.get("evaluator_notes", [])
     print(f"  • Evaluator Auditor Notes: {len(notes)}")
     for n in notes[:2]:
-        print(f"    💡 {n}")
+        print(f"    [INFO] {n}")
 
     score = float(eval_rep.get("overall_score", 85))
-    print(f"\n📊 Module 6 Benchmark Score: {score}/100 (Grade: {eval_rep.get('grade')})")
+    print(f"\n[SCORE] Module 6 Benchmark Score: {score}/100 (Grade: {eval_rep.get('grade')})")
     return {"module": "QA Evaluator Agent", "score": score, "details": f"Grade {eval_rep.get('grade')} ({score}/100)"}
 
 def evaluate_module_7_doubt_solver_chat():
@@ -458,7 +458,7 @@ def evaluate_module_7_doubt_solver_chat():
         elapsed = time.time() - start_t
 
         if res.status_code != 200:
-            print(f"  ❌ Chat query failed: {res.text}")
+            print(f"  [ERROR] Chat query failed: {res.text}")
             chat_scores.append(0)
             continue
 
@@ -477,12 +477,12 @@ def evaluate_module_7_doubt_solver_chat():
         chat_scores.append(q_score)
 
     avg_chat_score = sum(chat_scores) / len(chat_scores) if chat_scores else 0
-    print(f"\n📊 Module 7 Benchmark Score: {avg_chat_score}/100")
+    print(f"\n[SCORE] Module 7 Benchmark Score: {avg_chat_score}/100")
     return {"module": "Doubt Solver Chat", "score": float(avg_chat_score), "details": f"{len(test_queries)} queries answered"}
 
 def main():
     print("=" * 70)
-    print("🚀 RECRUITSAGE SYSTEM-WIDE BENCHMARK & EVALUATION SUITE")
+    print("RECRUITSAGE SYSTEM-WIDE BENCHMARK & EVALUATION SUITE")
     print("   Testing all 7 components & auditing result specificity")
     print("=" * 70)
 
@@ -502,14 +502,14 @@ def main():
     total_time = time.time() - start_all
 
     print("\n" + "=" * 70)
-    print("🏆 FINAL SYSTEM EVALUATION SCORECARD")
+    print("FINAL SYSTEM EVALUATION SCORECARD")
     print("=" * 70)
     
     total_score = sum(r["score"] for r in results)
     composite_score = round(total_score / len(results), 1)
 
     for r in results:
-        status = "🟢 EXCELLENT" if r["score"] >= 85 else ("🟡 GOOD" if r["score"] >= 70 else "🔴 NEEDS WORK")
+        status = "EXCELLENT" if r["score"] >= 85 else ("GOOD" if r["score"] >= 70 else "NEEDS WORK")
         print(f"  {r['module']:<35} : {r['score']:>5.1f} / 100  [{status}]  ({r['details']})")
 
     print("-" * 70)

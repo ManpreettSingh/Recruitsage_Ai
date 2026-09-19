@@ -1,35 +1,21 @@
-import zlib
-import struct
+import subprocess
 from pathlib import Path
 
-def create_png(width, height, color_rgb):
-    # Pure python minimal uncompressed PNG generator
-    header = b'\x89PNG\r\n\x1a\n'
-    ihdr_data = struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0)
-    ihdr_crc = zlib.crc32(b'IHDR' + ihdr_data)
-    ihdr = struct.pack('>I', 13) + b'IHDR' + ihdr_data + struct.pack('>I', ihdr_crc)
+root_dir = Path(__file__).resolve().parent.parent
+icons_dir = root_dir / "extension" / "icons"
+master_logo = icons_dir / "recruitcopilot_logo.png"
 
-    raw_data = bytearray()
-    for _ in range(height):
-        raw_data.append(0) # filter type none
-        for _ in range(width):
-            raw_data.extend(color_rgb)
+if not master_logo.exists():
+    master_logo = icons_dir / "logo.png"
 
-    compressed = zlib.compress(raw_data)
-    idat_crc = zlib.crc32(b'IDAT' + compressed)
-    idat = struct.pack('>I', len(compressed)) + b'IDAT' + compressed + struct.pack('>I', idat_crc)
+if not master_logo.exists():
+    print(f"Master logo not found at {master_logo}")
+    exit(1)
 
-    iend_crc = zlib.crc32(b'IEND')
-    iend = struct.pack('>I', 0) + b'IEND' + struct.pack('>I', iend_crc)
+for size in [16, 32, 48, 128, 256]:
+    for name in [f"recruitcopilot_icon{size}.png", f"recruitsage_icon{size}.png", f"icon{size}.png"]:
+        out_file = icons_dir / name
+        subprocess.run(["sips", "-z", str(size), str(size), str(master_logo), "--out", str(out_file)], check=True)
+        print(f"Generated {name} ({size}x{size})")
 
-    return header + ihdr + idat + iend
-
-out_dir = Path(__file__).resolve().parent.parent / "extension" / "icons"
-out_dir.mkdir(parents=True, exist_ok=True)
-
-indigo = (99, 102, 241) # #6366F1
-for size in [16, 48, 128]:
-    png_bytes = create_png(size, size, indigo)
-    with open(out_dir / f"icon{size}.png", "wb") as f:
-        f.write(png_bytes)
-print("Icons generated successfully!")
+print("All Recruit Copilot icons successfully generated from master logo!")

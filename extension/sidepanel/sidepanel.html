@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RecruitSage</title>
+  <title>Recruit Copilot</title>
   <link rel="stylesheet" href="sidepanel.css">
 </head>
 <body>
@@ -11,15 +11,28 @@
     <!-- Top Bar -->
     <header class="top-nav">
       <div class="nav-brand">
-        <img src="../icons/recruitsage_icon48.png" alt="RecruitSage" class="brand-logo-img">
-        <span class="brand-name">RecruitSage</span>
+        <img src="../icons/recruitcopilot_icon48.png" alt="Recruit Copilot" class="brand-logo-img">
+        <span class="brand-name">Recruit Copilot</span>
         <span class="brand-tag">TIET</span>
       </div>
       <div class="nav-actions">
+        <!-- Hybrid Model Selector: Gemini vs Ollama -->
+        <div class="model-toggle-group" id="model-toggle-group" role="radiogroup" aria-label="LLM Provider Toggle" title="Switch between Gemini and Ollama">
+          <button type="button" class="model-opt-btn active" id="btn-model-gemini" data-provider="gemini" aria-checked="true" role="radio" title="Google Gemini 3.5 Flash">
+            <span class="model-label">Gemini</span>
+          </button>
+          <button type="button" class="model-opt-btn" id="btn-model-ollama" data-provider="ollama" aria-checked="false" role="radio" title="Local Ollama Qwen 2.5 7B">
+            <span class="model-label">Ollama</span>
+          </button>
+        </div>
+
         <div class="status-indicator" id="status-container" title="System Status">
           <span class="status-dot" id="system-dot"></span>
           <span class="status-label" id="system-label">Connecting</span>
         </div>
+        <button id="btn-privacy-toggle" class="btn-theme-toggle is-privacy-active" title="Demo Privacy Mode: Salary and compensation blurred (Click to toggle)" aria-label="Toggle Demo Privacy Mode">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+        </button>
         <button id="btn-theme-toggle" class="btn-theme-toggle" title="Switch to Light Mode" aria-label="Toggle Light / Dark Mode">
           <svg class="theme-icon-sun" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
           <svg class="theme-icon-moon rs-hidden" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
@@ -31,16 +44,38 @@
     <section class="context-panel">
       <div class="panel-header">
         <div class="panel-header-left">
-          <span class="panel-caption">Placement Drive Target</span>
+          <span class="panel-caption">Target Job & Company</span>
           <span id="ai-extract-badge" class="badge-ai rs-hidden">AI Parsed</span>
         </div>
-        <button id="btn-sync-page" class="btn-micro" title="Synchronize details from active tab">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-          Sync Page
+        <div class="panel-header-actions">
+          <button type="button" id="btn-sync-page" class="btn-micro" title="Auto-fill details from this page">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            Auto-Fill
+          </button>
+          <button type="button" id="btn-clear-target" class="btn-micro" title="Clear all input fields">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            Clear
+          </button>
+          <button type="button" id="btn-toggle-query-panel" class="btn-micro" title="Show or hide form">
+            <span id="toggle-query-panel-icon"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Compact Summary Pill (visible when query panel is collapsed) -->
+      <div id="query-panel-collapsed-bar" class="query-collapsed-bar rs-hidden">
+        <div class="query-collapsed-info">
+          <span id="query-collapsed-title" class="query-collapsed-title">No company targeted yet</span>
+          <span id="query-collapsed-ctc" class="query-collapsed-sub"></span>
+        </div>
+        <button type="button" id="btn-expand-query-panel" class="btn-micro btn-micro-accent" title="Reopen form">
+          Edit Target
         </button>
       </div>
 
-      <div class="input-stack">
+      <!-- Collapsible Query Panel Body -->
+      <div id="query-panel-body" class="query-panel-body">
+        <div class="input-stack">
         <div class="input-field">
           <label for="input-company">Company</label>
           <input type="text" id="input-company" placeholder="e.g. Optum, D. E. Shaw, JPMorgan, Marquardt..." autocomplete="off" spellcheck="false">
@@ -74,7 +109,7 @@
         <div class="input-field input-field-highlight">
           <label for="input-probation">
             <span>Probation / Bond / Service Terms</span>
-            <span class="label-tag">Red Flag Audit</span>
+            <span class="label-tag">Safety Check</span>
           </label>
           <input type="text" id="input-probation" placeholder="e.g. 1-year probation with review / 2-year bond" autocomplete="off" spellcheck="false">
         </div>
@@ -91,30 +126,38 @@
 
         <div class="collapsible-section">
           <button id="btn-toggle-jd" type="button" class="btn-link">
-            <span id="toggle-jd-icon">▸</span> View Full Notice & Duties
+            <span id="toggle-jd-icon"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg></span> View Full Job Description
           </button>
           <div id="jd-drawer" class="rs-hidden">
             <textarea id="input-jd" rows="3" placeholder="Full job description text or drive notes..." autocomplete="off" spellcheck="false"></textarea>
           </div>
         </div>
 
+        <!-- Additional Drive Details & Dropdown Intel (Auto-extracted bullet points) -->
+        <div class="input-field" style="margin-top:6px;">
+          <label for="input-additional-notes" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Additional Details & Dropdown Intel</span>
+            <span class="label-tag" style="color:var(--accent-blue);">Auto-Extracted Bullet Points</span>
+          </label>
+          <textarea id="input-additional-notes" rows="6" placeholder="Selection procedure, CGPA cutoffs, salary breakdown, important dates, and all dropdown details will be automatically dumped here in clean bullet points..." autocomplete="off" spellcheck="false" style="font-size:11px; line-height:1.45;"></textarea>
+        </div>
+
         <!-- Auto-detected Portal PDFs / Documents Badge & Quick Ingestion -->
         <div id="detected-docs-container" class="detected-docs-card" style="display:none; margin-top: 6px;">
           <div class="detected-docs-header">
             <div style="display:flex; align-items:center; gap:6px;">
-              <span class="detected-docs-icon">📄</span>
-              <span class="detected-docs-title">Detected Portal Documents</span>
+              <span class="detected-docs-title">Found PDFs & Documents</span>
             </div>
             <span id="detected-docs-count" class="badge-mini">0 Found</span>
           </div>
-          <p class="detected-docs-subtext">Attached JD / Salary Breakdown PDFs found on this drive notice. Click to ingest:</p>
+          <p class="detected-docs-subtext">Attached JD or salary PDFs found on this page. Click to use:</p>
           <div id="detected-docs-list" class="detected-docs-chips"></div>
         </div>
 
         <!-- Additional Context & PDF Attachment Section -->
         <div class="collapsible-section" style="margin-top: 6px;">
           <button id="btn-toggle-extra-ctx" type="button" class="btn-link" style="color: var(--accent-blue);">
-            <span id="toggle-extra-icon">▸</span> Attach PDF Notice or Custom Notes (Optional)
+            <span id="toggle-extra-icon"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg></span> Upload PDF Notice or Offer Letter (Optional)
           </button>
           
           <div id="extra-ctx-drawer" class="rs-hidden" style="margin-top: 8px;">
@@ -123,47 +166,40 @@
               <input type="file" id="input-pdf-file" accept="application/pdf" style="display:none;">
               
               <div id="pdf-dropzone" class="pdf-dropzone">
-                <div class="pdf-drop-icon">📄</div>
                 <div class="pdf-drop-text">
-                  <span style="font-weight:600; color:var(--text-primary); font-size:11.5px;">Attach Placement PDF / Offer Letter</span>
-                  <span style="font-size:10px; color:var(--text-muted);">Click to browse or drag & drop (up to 25MB)</span>
+                  <span style="font-weight:600; color:var(--text-primary); font-size:11.5px;">Upload Placement Notice or Offer Letter (PDF)</span>
+                  <span style="font-size:10px; color:var(--text-muted);">Click to browse or drag & drop (PDF up to 25MB)</span>
                 </div>
               </div>
 
               <!-- Uploaded PDF Status Badge -->
               <div id="pdf-status-badge" class="pdf-status-card" style="display:none; margin-top:6px;">
                 <div class="pdf-badge-left">
-                  <span class="pdf-badge-icon">📄</span>
                   <div class="pdf-badge-info">
                     <span id="pdf-filename" class="pdf-filename">Notice.pdf</span>
                     <span id="pdf-meta" class="pdf-meta">Analyzing...</span>
                   </div>
                 </div>
-                <button type="button" id="btn-remove-pdf" class="btn-icon" title="Remove PDF">✕</button>
+                <button type="button" id="btn-remove-pdf" class="btn-icon" title="Remove PDF"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
               </div>
 
               <!-- Auto-parse checkbox -->
               <div style="display:flex; align-items:center; gap:6px; margin-top:7px; margin-bottom:8px;">
                 <input type="checkbox" id="chk-auto-parse-pdf" checked style="accent-color:var(--accent-blue); cursor:pointer;">
                 <label for="chk-auto-parse-pdf" style="font-size:10.5px; color:var(--text-secondary); cursor:pointer; margin:0;">
-                  Auto-fill drive fields with Local AI (Ollama)
+                  Auto-fill details from PDF using AI
                 </label>
               </div>
-            </div>
-
-            <!-- Additional Notes / Text Context -->
-            <div class="input-field" style="margin-top:6px;">
-              <label for="input-additional-notes">Additional Notes / WhatsApp / Email Context</label>
-              <textarea id="input-additional-notes" rows="2" placeholder="Paste WhatsApp notice, recruiter email clauses, senior advice, or special criteria..." autocomplete="off" spellcheck="false"></textarea>
             </div>
           </div>
         </div>
       </div>
 
       <button id="btn-analyze" class="btn-primary">
-        <span class="btn-text">Run Intelligence Audit</span>
-        <span class="btn-shortcut">⌘↵</span>
+        <span class="btn-text">Analyze Company</span>
+        <span class="btn-shortcut">Ctrl+Enter</span>
       </button>
+      </div> <!-- /#query-panel-body -->
     </section>
 
     <!-- Progress State -->
@@ -172,33 +208,33 @@
         <div class="progress-bar-indeterminate"></div>
       </div>
       <div class="progress-info">
-        <span class="progress-status" id="progress-status-title">Gathering intelligence...</span>
+        <span class="progress-status" id="progress-status-title">Researching company...</span>
         <span class="progress-counter" id="progress-step-counter">Step 1 of 6</span>
       </div>
       <div class="stepper-list">
         <div class="stepper-item is-active" id="step-1">
           <span class="step-num">01</span>
-          <span class="step-label">Extract Portal Context</span>
+          <span class="step-label">Read Job Posting</span>
         </div>
         <div class="stepper-item" id="step-2">
           <span class="step-num">02</span>
-          <span class="step-label">Query Campus Historical DB</span>
+          <span class="step-label">Check College Records</span>
         </div>
         <div class="stepper-item" id="step-3">
           <span class="step-num">03</span>
-          <span class="step-label">Mine Developer Discussions</span>
+          <span class="step-label">Search Reddit & Student Posts</span>
         </div>
         <div class="stepper-item" id="step-4">
           <span class="step-num">04</span>
-          <span class="step-label">Aggregate Verified Reviews</span>
+          <span class="step-label">Read Employee Reviews</span>
         </div>
         <div class="stepper-item" id="step-5">
           <span class="step-num">05</span>
-          <span class="step-label">Audit 9-Point Red Flags</span>
+          <span class="step-label">Check Red Flags & Traps</span>
         </div>
         <div class="stepper-item" id="step-6">
           <span class="step-num">06</span>
-          <span class="step-label">Synthesize Briefing Dossier</span>
+          <span class="step-label">Create Final Report</span>
         </div>
       </div>
     </div>
@@ -206,12 +242,15 @@
     <!-- Error Notice -->
     <div id="error-banner" class="notice-banner notice-error rs-hidden"></div>
 
-    <!-- Main Content Area (Dossier View) -->
+    <!-- Main Content Area (Company Report) -->
     <main id="dossier-container" class="dossier-shell rs-hidden">
       <!-- Executive Summary -->
       <section class="summary-hero" id="verdict-card">
         <div class="hero-header">
-          <span class="tag-fit" id="fit-badge">High Fit</span>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="tag-fit" id="fit-badge">Good Fit</span>
+            <span class="tag-provider-badge" id="hero-provider-badge">Gemini</span>
+          </div>
           <span class="tag-meta" id="sources-count">13 sources</span>
         </div>
         <p class="hero-verdict" id="verdict-summary"></p>
@@ -221,7 +260,7 @@
       <section class="eval-card" id="evaluation-card" style="display:none; margin-bottom: 12px;">
         <div class="eval-header">
           <div class="eval-title-wrap">
-            <span class="eval-title">Agentic Audit Quality</span>
+            <span class="eval-title">Report Accuracy Check</span>
             <span id="eval-grade-badge" class="eval-badge">Grade A+ (90%)</span>
           </div>
           <span id="eval-overall-score" class="eval-score-text">Verified</span>
@@ -229,33 +268,31 @@
         <p class="eval-verdict-text" id="eval-verdict-summary"></p>
         <div class="eval-metrics-grid" id="eval-metrics-grid"></div>
         <div id="eval-notes-container" class="eval-notes-box" style="display:none;">
-          <div class="eval-notes-title">💡 Auditor Verification Notes:</div>
+          <div class="eval-notes-title">Verification Notes:</div>
           <ul id="eval-notes-list" class="eval-notes-list"></ul>
         </div>
       </section>
 
-      <!-- Segmented Navigation Bar -->
+      <!-- Navigation Tabs (Simple & Clear) -->
       <nav class="segmented-control" role="tablist">
-        <button class="segment-btn is-active" data-tab="tab-redflags">Red Flags</button>
-        <button class="segment-btn" data-tab="tab-compensation">Comp</button>
-        <button class="segment-btn" data-tab="tab-campus">Campus Intel</button>
-        <button class="segment-btn" data-tab="tab-culture">Reviews</button>
+        <button class="segment-btn is-active" data-tab="tab-compensation">Salary</button>
+        <button class="segment-btn" data-tab="tab-campus">Past Records</button>
+        <button class="segment-btn" data-tab="tab-prep">Prep Guide</button>
+        <button class="segment-btn" data-tab="tab-culture">Culture</button>
         <button class="segment-btn" data-tab="tab-alumni">Alumni</button>
-        <button class="segment-btn" data-tab="tab-prep">Prep</button>
-        <button class="segment-btn" data-tab="tab-chat">Doubt Solver</button>
+        <button class="segment-btn" data-tab="tab-chat">Ask AI</button>
+        <button class="segment-btn" data-tab="tab-redflags">Red Flags</button>
       </nav>
 
       <!-- Panes -->
       <div class="tab-content">
-        <!-- 1. Red Flags -->
-        <div class="tab-pane is-active" id="tab-redflags">
-          <div class="pane-caption">9-Point Risk & Trap Audit</div>
-          <div id="redflags-list" class="item-stack"></div>
-        </div>
-
-        <!-- 2. Compensation -->
-        <div class="tab-pane" id="tab-compensation">
-          <div class="pane-caption">Compensation & In-Hand Analysis</div>
+        <!-- 1. Compensation (Active Default) -->
+        <div class="tab-pane is-active" id="tab-compensation">
+          <div class="demo-privacy-banner" id="demo-privacy-banner">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            <span id="demo-privacy-banner-text">Demo Recording Mode: Salary and compensation values are blurred</span>
+          </div>
+          <div class="pane-caption">Salary & Monthly Take-Home Pay</div>
           <div class="metrics-grid">
             <div class="metric-card">
               <span class="metric-label">Stated CTC</span>
@@ -276,26 +313,26 @@
           </div>
 
           <div class="info-group">
-            <div class="group-title">Service Agreement & Bonds</div>
+            <div class="group-title">Bond & Commitment Period</div>
             <div class="group-content" id="comp-bond">None detected</div>
           </div>
 
           <div class="info-group">
-            <div class="group-title">Deductions & Retentions</div>
+            <div class="group-title">Salary Deductions & Conditions</div>
             <ul class="data-list" id="comp-traps-list"></ul>
           </div>
         </div>
 
-        <!-- 3. Campus Intel -->
+        <!-- 2. Campus Placement History -->
         <div class="tab-pane" id="tab-campus">
-          <div class="pane-caption">Thapar Institute Placement History</div>
+          <div class="pane-caption">Past Placement History at Thapar</div>
           <div id="campus-status-banner" class="status-callout"></div>
           <div id="campus-visits-container" class="item-stack"></div>
           
           <!-- Master DB Company Topic Breakdown -->
           <div id="campus-topic-card" class="stack-card rs-mt-16" style="display:none; padding:12px 14px;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <span class="pane-caption" style="margin:0; font-size:11px; text-transform:uppercase; letter-spacing:0.04em;">Placement Master DB Topic Breakdown</span>
+              <span class="pane-caption" style="margin:0; font-size:11px; text-transform:uppercase; letter-spacing:0.04em;">Most Frequently Asked Topics</span>
               <span id="campus-topic-diff" class="question-diff diff-medium">Medium</span>
             </div>
             <div id="campus-topic-pills" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;"></div>
@@ -303,15 +340,15 @@
           </div>
 
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; margin-bottom:6px;">
-            <div class="pane-caption" style="margin:0;">Placement Master DB: Real Questions</div>
+            <div class="pane-caption" style="margin:0;">Actual Questions Asked in Previous Drives</div>
             <span id="campus-questions-count" style="font-size:10.5px; font-weight:600; color:var(--accent-blue);"></span>
           </div>
           <div id="campus-questions-list" class="item-stack"></div>
         </div>
 
-        <!-- 4. Culture -->
+        <!-- 3. Culture -->
         <div class="tab-pane" id="tab-culture">
-          <div class="pane-caption">Work Culture & Employee Sentiment</div>
+          <div class="pane-caption">Work Culture & Employee Reviews</div>
           <div class="sentiment-card">
             <div class="sentiment-row">
               <span class="sentiment-label">Aggregated Rating</span>
@@ -322,79 +359,138 @@
               <p id="culture-wlb" class="block-text">-</p>
             </div>
             <div class="sentiment-block" id="culture-salary-block" style="display:none;">
-              <span class="block-label">Salary Hikes & Appraisal Velocity</span>
+              <span class="block-label">Salary Hikes & Appraisals</span>
               <p id="culture-salary" class="block-text">-</p>
             </div>
             <div class="sentiment-block">
-              <span class="block-label">Tech Community Consensus (Reddit / Blind)</span>
+              <span class="block-label">What Engineers Say on Reddit</span>
               <p id="culture-reddit" class="block-text">-</p>
             </div>
           </div>
+          
+          <!-- Top 3-4 Review Sources (AmbitionBox, Glassdoor, Reddit, Indeed) -->
+          <div class="culture-sources-header">
+            <span class="pane-caption" style="margin:0;">Verified Review Portals</span>
+            <span class="sources-count-badge">Top 3-4 Direct Links</span>
+          </div>
+          <div id="culture-sources-list" class="review-sources-grid"></div>
 
           <div class="pros-cons-grid">
             <div class="aspect-panel aspect-positive">
-              <div class="aspect-title">Pros & Strengths</div>
+              <div class="aspect-title">What Employees Like (Pros)</div>
               <ul class="data-list" id="culture-pros"></ul>
             </div>
             <div class="aspect-panel aspect-negative">
-              <div class="aspect-title">Cons & Caveats</div>
+              <div class="aspect-title">What Employees Dislike (Cons)</div>
               <ul class="data-list" id="culture-cons"></ul>
             </div>
           </div>
         </div>
 
-        <!-- 5. Alumni Links -->
+        <!-- 4. Alumni & Senior Network -->
         <div class="tab-pane" id="tab-alumni">
-          <div class="pane-caption">Verified TIET Alumni at Target Firm</div>
-          <p class="pane-helper">Direct profile links to Thapar seniors currently or previously in engineering and product roles:</p>
+          <div class="pane-caption">Thapar Alumni & Senior Network</div>
+          <p class="pane-helper">Connect directly with verified seniors from Thapar Institute of Engineering and Technology:</p>
           <div id="alumni-links-list" class="alumni-stack"></div>
         </div>
 
-        <!-- 6. Prep Guide -->
+        <!-- 5. Prep Guide -->
         <div class="tab-pane" id="tab-prep">
-          <div class="pane-caption">Targeted Data-Grounded Preparation Intelligence</div>
+          <div class="pane-caption">Interview Preparation & Past Questions</div>
           
+          <!-- Role & Company Target Header Banner -->
+          <div id="prep-role-target-banner" class="prep-target-banner">
+            <div class="prep-target-head">
+              <div class="prep-target-info">
+                <div class="prep-target-company" id="prep-target-company-name">Target Company</div>
+                <div class="prep-target-role" id="prep-target-role-name">Target Role</div>
+              </div>
+            </div>
+            <p class="prep-target-note">Topics, interview tips, and questions below are specifically for this company and role.</p>
+          </div>
+
+          <!-- Question Category Switcher / Filter Pills -->
+          <div class="prep-qbank-nav">
+            <div class="prep-qbank-tabs">
+              <button type="button" class="prep-qtab-btn active" id="btn-show-all-questions" data-target="all">
+                <span>All Questions</span>
+                <span class="badge-mini" id="total-questions-badge">0</span>
+              </button>
+              <button type="button" class="prep-qtab-btn" id="btn-show-db-questions" data-target="database">
+                <span>Actual Database</span>
+                <span class="badge-mini" id="db-questions-tab-badge">0</span>
+              </button>
+              <button type="button" class="prep-qtab-btn" id="btn-show-web-questions" data-target="web">
+                <span>Web Researched</span>
+                <span class="badge-mini" id="web-questions-tab-badge">0</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Section 1: Actual Database of Last Year Questions -->
+          <div class="info-group prep-qgroup-db" id="group-database-questions">
+            <div class="group-title-row">
+              <span class="group-title">Actual Database of Last Year Questions</span>
+              <span class="group-title-tag badge-tiet-tag" id="database-questions-count-badge">0 Questions</span>
+            </div>
+            <p class="section-subtitle" style="font-size:10.5px; color:var(--text-muted); margin:2px 0 8px 0;">
+              Verified questions asked during previous campus placement drives from official college records.
+            </p>
+            <div id="prep-database-questions-stack" class="prep-questions-divided-stack"></div>
+          </div>
+
+          <!-- Section 2: Web Researched Questions -->
+          <div class="info-group prep-qgroup-web" id="group-web-questions">
+            <div class="group-title-row">
+              <span class="group-title">Web Researched Questions</span>
+              <span class="group-title-tag badge-web-tag" id="web-questions-count-badge">0 Questions</span>
+            </div>
+            <p class="section-subtitle" style="font-size:10.5px; color:var(--text-muted); margin:2px 0 8px 0;">
+              Real technical interview questions mined from GeeksforGeeks archives, LeetCode Discuss, and online technical rounds.
+            </p>
+            <div id="prep-web-questions-stack" class="prep-questions-divided-stack"></div>
+          </div>
+
           <!-- Cross-Campus Recruitment Insights Alert -->
           <div id="prep-campus-alert" class="prep-alert-banner" style="display:none; margin-bottom: 12px;">
             <div class="prep-alert-header">
-              <span class="prep-alert-icon">⚡</span>
-              <span class="prep-alert-title">Cross-Campus Drive Intelligence</span>
+              <span class="prep-alert-title">Hiring Patterns at Other Engineering Colleges</span>
             </div>
             <p id="prep-cross-campus-text" class="prep-alert-text">Analyzing previous recruitment drives across Thapar, DTU, NSUT, and NIT campuses...</p>
           </div>
 
-          <!-- 1. Topic Weight Distribution Matrix -->
+          <!-- 3. Topic Weight Distribution Matrix -->
           <div class="info-group">
             <div class="group-title-row">
-              <span class="group-title">High-Yield Topic Weight Matrix</span>
-              <span class="group-title-tag">Placement Master DB</span>
+              <span class="group-title">Most Important Topics to Revise</span>
+              <span class="group-title-tag">High Priority</span>
             </div>
             <div id="prep-topic-matrix-stack" class="prep-matrix-stack"></div>
           </div>
 
-          <!-- 2. Concrete Coding Problem Archetypes -->
+          <!-- 4. Concrete Coding Problem Archetypes -->
           <div class="info-group">
             <div class="group-title-row">
-              <span class="group-title">Concrete Problem Archetypes & Coding Patterns</span>
-              <span class="group-title-tag">Targeted LeetCode / GFG</span>
+              <span class="group-title">Common Coding Problems & Questions</span>
+              <span class="group-title-tag">LeetCode / GFG</span>
             </div>
             <div id="prep-archetypes-stack" class="prep-archetypes-stack"></div>
           </div>
 
-          <!-- 3. Core CS Technical Deep Dive -->
+          <!-- 5. Core CS Technical Deep Dive -->
           <div class="info-group">
             <div class="group-title-row">
-              <span class="group-title">Core CS Subject Checklist (OS, DBMS, CN, OOPS)</span>
-              <span class="group-title-tag">High-Yield Questions</span>
+              <span class="group-title">Important Core CS Concepts</span>
+              <span class="group-title-tag">Core Subjects</span>
             </div>
             <div id="prep-core-cs-stack" class="prep-core-cs-stack"></div>
           </div>
 
-          <!-- 4. Round-by-Round Strategy & Traps -->
+          <!-- 6. Round-by-Round Strategy & Traps -->
           <div class="info-group">
             <div class="group-title-row">
-              <span class="group-title">Round-by-Round Strategy & Dry-Run Defense</span>
-              <span class="group-title-tag">OA -> Tech 1 -> Tech 2 -> HR</span>
+              <span class="group-title">Round-by-Round Interview Tips</span>
+              <span class="group-title-tag">Selection Rounds</span>
             </div>
             <div id="prep-round-tactics-stack" class="prep-tactics-stack"></div>
           </div>
@@ -407,26 +503,37 @@
           </div>
         </div>
 
-        <!-- 7. Doubt Solver (Chat) -->
+        <!-- 6. Doubt Solver (Chat) -->
         <div class="tab-pane" id="tab-chat">
-          <div class="pane-caption">Placement Mentor Chat</div>
-          <div class="query-chips">
-            <button class="chip" data-q="What DSA topics were asked at Thapar previously?">DSA Topics</button>
+          <div class="pane-caption">Ask Questions About This Company</div>
+          <div id="chat-active-company-banner" class="chat-context-banner" style="display:none;">
+            <span class="chat-context-dot"></span>
+            <span class="chat-context-text" id="chat-context-text">Asking about: <strong>Company</strong></span>
+          </div>
+          <div class="query-chips" id="chat-query-chips">
+            <button class="chip" data-q="What DSA and core technical topics were asked by this company at Thapar?">Past Exam Topics</button>
             <button class="chip" data-q="Is there any bond or service agreement?">Bond Check</button>
-            <button class="chip" data-q="What is the realistic take-home monthly salary?">In-Hand Salary</button>
-            <button class="chip" data-q="What is the work-life balance for campus hires?">Freshers WLB</button>
+            <button class="chip" data-q="What is the real monthly in-hand take-home salary?">In-Hand Salary</button>
+            <button class="chip" data-q="What mistakes should I avoid in interview rounds?">Interview Tips</button>
+            <button class="chip" data-q="What is the work-life balance for campus hires?">Work-Life Balance</button>
           </div>
           <div id="chat-messages" class="chat-viewport">
             <div class="chat-bubble chat-assistant">
-              Hello. I have indexed the verified Thapar campus records, compensation details, and community reviews for this drive. What specific questions or doubts can I clarify?
+              Hi! Ask me anything about this company—like real in-hand salary, past interview questions, service bonds, work culture, or hiring rounds.
             </div>
           </div>
           <div class="chat-compose">
-            <textarea id="chat-input" rows="1" placeholder="Ask any question about this drive..."></textarea>
+            <textarea id="chat-input" rows="1" placeholder="Ask any question about this company..."></textarea>
             <button id="btn-chat-send" class="btn-send" title="Send (Enter)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
             </button>
           </div>
+        </div>
+
+        <!-- 7. Red Flags (Shifted to Last Pane) -->
+        <div class="tab-pane" id="tab-redflags">
+          <div class="pane-caption">Company Warnings & Red Flags</div>
+          <div id="redflags-list" class="item-stack"></div>
         </div>
       </div>
     </main>

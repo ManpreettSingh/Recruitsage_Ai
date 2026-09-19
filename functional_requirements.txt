@@ -4,7 +4,7 @@ RECRUITSAGE - FUNCTIONAL REQUIREMENTS SPECIFICATION (FRS)
 
 1. CHROME EXTENSION (CLIENT-SIDE)
    1.1 Floating Trigger Button:
-       - Injects a floating action button ("✨ RecruitSage Intel") into company 
+       - Injects a floating action button ("RecruitSage Intel") into company 
          details pages on https://recruit.thapar.edu/.
        - Non-intrusive, draggable or docked to the right edge of the viewport.
    1.2 Automated DOM Scraper:
@@ -72,17 +72,25 @@ RECRUITSAGE - FUNCTIONAL REQUIREMENTS SPECIFICATION (FRS)
            `site:linkedin.com/in ("Thapar" OR "TIET" OR "Thapar Institute") "[Company]"`
            `site:linkedin.com/in ("Thapar" OR "TIET") "[Company]" "[Role]"`
          * Returns ready-to-click URLs directly to active Thapar alumni profiles.
-   2.4 The 9-Point Red-Flag Audit Engine:
-       - Evaluates company JD and web intel against an exhaustive 9-point checklist:
-         1. Service Bonds & Monetary Penalties (1-3 yr bonds, deposit demands).
-         2. CTC Inflation & Phantom Pay (low base, deferred bonuses, 4-yr stock cliffs).
-         3. Delayed Joining / Offer Revocation history.
-         4. Probation Traps & Aggressive PIP (Performance Improvement Plan) culture.
-         5. Role Bait-and-Switch (hired as SDE -> assigned to L1/L2 Support or manual QA).
-         6. Toxic Management & Unpaid Overtime / Weekend shifts.
-         7. Mandatory Rotational / Night Shifts (US/UK shifts for freshers).
-         8. Mass Layoffs, Hiring Freezes, or Financial Instability.
-         9. Tech Stack Stagnation (internal proprietary tools, dead-end technologies).
+   2.4 The 17-Point Red-Flag & Corporate Footprint Audit Engine:
+       - Evaluates company JD, LinkedIn presence, and web intel against a comprehensive 17-point checklist:
+         1. Low LinkedIn Footprint (< 5,000 followers or unverified presence).
+         2. Ultra-Lean Team Size (< 10-50 employees, solo fresher risk without senior engineering mentors).
+         3. Newly Founded / Early-Stage Startup Runway Risk (founded within last 1-3 yrs with unproven campus pedigree).
+         4. Mandatory Unpaid / Low-Stipend Internship & Conditional PPO Baiting.
+         5. Document & Marksheet Withholding (demanding original educational certificates / illegal under AICTE).
+         6. Service Bonds & Monetary Penalties (1-3 yr bonds, deposit demands).
+         7. CTC Inflation & Deferred Phantom Pay (low base, deferred bonuses, 4-yr stock cliffs).
+         8. Delayed Joining / Offer Revocation history.
+         9. Probation Traps & Aggressive PIP (Performance Improvement Plan) culture.
+         10. Role Bait-and-Switch (hired as SDE -> assigned to L1/L2 Support or manual QA).
+         11. Predatory Notice Periods (3-6 months for entry-level) & Overly Broad Non-Competes.
+         12. Delayed Stipends & Irregular Salary Disbursal History.
+         13. Toxic Management & Unpaid Overtime / Weekend shifts.
+         14. Mandatory Rotational / Night Shifts (US/UK shifts for freshers).
+         15. Mass Layoffs, Hiring Freezes, or Financial Instability.
+         16. Shady Corporate Domain & Free Email Contacts (@gmail/@yahoo for official placement drives).
+         17. Tech Stack Stagnation (internal proprietary tools, dead-end technologies).
    2.5 Dossier Synthesis Engine:
        - Uses local Ollama model (Qwen 2.5 7B / Llama 3.1 8B) to structure findings 
          into a unified JSON schema.
