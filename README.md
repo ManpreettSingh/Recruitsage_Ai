@@ -12,6 +12,26 @@ It runs as a Chrome Extension side panel directly inside the Thapar placement po
 
 ---
 
+## Screenshots
+
+**Input Panel — auto-extracts job details from the portal page**
+
+![Input Panel](assets/screenshots/01_input_panel.png)
+
+**Analysis Pipeline — 6-step multi-agent research in progress**
+
+![Analysis Pipeline](assets/screenshots/02_analysis_pipeline.png)
+
+**Campus Intel Tab — past drive records, CGPA cutoffs, and actual questions asked**
+
+![Campus Intel](assets/screenshots/03_campus_intel.png)
+
+**Alumni Tab — 1-click LinkedIn search for Thapar seniors at the company**
+
+![Alumni Tab](assets/screenshots/04_alumni_tab.png)
+
+---
+
 ## What It Does
 
 - **Auto-extracts** job details (role, CTC, eligibility, skills, location) from the placement portal page
@@ -27,37 +47,7 @@ It runs as a Chrome Extension side panel directly inside the Thapar placement po
 
 ## Architecture
 
-```
-                   [ recruit.thapar.edu ]
-                             |
-         (Click "Recruit Copilot Intel" on Company Drive Page)
-                             |
-                 [ Chrome Side-Panel UI ]
-                             | HTTP POST /api/analyze
-                             |
-           [ FastAPI Python Orchestrator ]
-                             |
-     +───────────────────────+───────────────────────+
-     |                       |                       |
-[ Campus Intel ]     [ Web Search Miner ]     [ Alumni Worker ]
- - RapidFuzz name     - DuckDuckGo scraper     - LinkedIn dork
-   matching           - Reddit r/devIndia         links for
- - 1,400+ question    - Glassdoor/AmbitionBox     Thapar seniors
-   bank lookup        - Red flag probe
- - Company-specific
-   question sets
-   (e.g. Optum/Thapar)
-     +───────────────────────+───────────────────────+
-                             | Aggregated Context
-                             |
-       [ LLM Router — Gemini API / Ollama (qwen2.5:7b) ]
-        - Hybrid: Gemini for cloud, Ollama for local fallback
-        - Calculates CTC vs In-Hand Take-Home
-        - Audits 17-point Red Flag Checklist
-        - Generates 48-Hour High-Yield Prep Roadmap
-                             |
-           [ Structured Dossier + Streaming AI Chat ]
-```
+![Architecture Diagram](assets/screenshots/05_architecture_diagram.png)
 
 ---
 
