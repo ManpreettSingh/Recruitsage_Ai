@@ -44,14 +44,14 @@ class LLMRouter:
             return "ollama"
         return "gemini"
 
-    async def extract_drive_context(self, raw_page_text: str, provider: Optional[str] = None) -> Tuple[Dict[str, Any], str]:
+    async def extract_drive_context(self, raw_page_text: str, provider: Optional[str] = None, gemini_svc=None) -> Tuple[Dict[str, Any], str]:
         """
         Extracts structured fields from raw placement notice text.
         Returns (parsed_dict, actual_provider_used).
         """
         chosen = self._resolve_provider(provider)
-        primary = gemini_service if chosen == "gemini" else ollama_service
-        secondary = ollama_service if chosen == "gemini" else gemini_service
+        primary = (gemini_svc or gemini_service) if chosen == "gemini" else ollama_service
+        secondary = ollama_service if chosen == "gemini" else (gemini_svc or gemini_service)
         primary_name = chosen
         secondary_name = "ollama" if chosen == "gemini" else "gemini"
 
@@ -83,14 +83,15 @@ class LLMRouter:
                                  location: str = "", probation_note: str = "",
                                  eligibility_text: str = "", skills: List[str] = None,
                                  additional_context: str = "",
-                                 provider: Optional[str] = None) -> Tuple[Dict[str, Any], str]:
+                                 provider: Optional[str] = None,
+                                 gemini_svc=None) -> Tuple[Dict[str, Any], str]:
         """
         Executes synthesis agent with automatic failover between Gemini and Ollama.
         Returns (dossier_dict, actual_provider_used).
         """
         chosen = self._resolve_provider(provider)
-        primary = gemini_service if chosen == "gemini" else ollama_service
-        secondary = ollama_service if chosen == "gemini" else gemini_service
+        primary = (gemini_svc or gemini_service) if chosen == "gemini" else ollama_service
+        secondary = ollama_service if chosen == "gemini" else (gemini_svc or gemini_service)
         primary_name = chosen
         secondary_name = "ollama" if chosen == "gemini" else "gemini"
 
@@ -133,13 +134,14 @@ class LLMRouter:
                                jd_text: str, campus_intel: Dict[str, Any],
                                review_snippets: List[Dict[str, str]],
                                red_flag_snippets: List[Dict[str, str]],
-                               provider: Optional[str] = None) -> Tuple[Dict[str, Any], str]:
+                               provider: Optional[str] = None,
+                               gemini_svc=None) -> Tuple[Dict[str, Any], str]:
         """
         Executes QA audit evaluator with automatic failover between Gemini and Ollama.
         """
         chosen = self._resolve_provider(provider)
-        primary = gemini_service if chosen == "gemini" else ollama_service
-        secondary = ollama_service if chosen == "gemini" else gemini_service
+        primary = (gemini_svc or gemini_service) if chosen == "gemini" else ollama_service
+        secondary = ollama_service if chosen == "gemini" else (gemini_svc or gemini_service)
         primary_name = chosen
         secondary_name = "ollama" if chosen == "gemini" else "gemini"
 
@@ -169,13 +171,14 @@ class LLMRouter:
 
     async def stream_chat(self, company_name: str, context: Dict[str, Any],
                           messages: List[Dict[str, str]],
-                          provider: Optional[str] = None) -> AsyncGenerator[str, None]:
+                          provider: Optional[str] = None,
+                          gemini_svc=None) -> AsyncGenerator[str, None]:
         """
         Streams chat responses from the chosen provider, falling back seamlessly if initial token fails.
         """
         chosen = self._resolve_provider(provider)
-        primary = gemini_service if chosen == "gemini" else ollama_service
-        secondary = ollama_service if chosen == "gemini" else gemini_service
+        primary = (gemini_svc or gemini_service) if chosen == "gemini" else ollama_service
+        secondary = ollama_service if chosen == "gemini" else (gemini_svc or gemini_service)
         primary_name = chosen
         secondary_name = "ollama" if chosen == "gemini" else "gemini"
 
@@ -199,7 +202,6 @@ class LLMRouter:
                     yield chunk
             except Exception as e:
                 yield f"\n[RecruitSage Chat Error: Both {primary_name} and {secondary_name} providers are currently unavailable. {str(e)}]"
-
     async def evaluate_and_fix_mermaid(self, mermaid_code: str, error_context: str = "", provider: Optional[str] = None) -> Tuple[str, str]:
         """
         Routes Mermaid syntax evaluation to LLM judge (Gemini or Ollama) with fallback.

@@ -8,10 +8,21 @@ let currentRawPageText = "";
 let attachedPdfText = "";
 let attachedPdfFilename = "";
 let currentProvider = "gemini"; // "gemini" or "ollama"
+let userGeminiApiKey = ""; // Set by user in Settings, stored in chrome.storage.local
+
+// Returns headers object for all backend API calls, including the user's Gemini API key if set
+function getApiHeaders(extra = {}) {
+  const headers = { "Content-Type": "application/json", ...extra };
+  if (userGeminiApiKey) {
+    headers["X-Gemini-Api-Key"] = userGeminiApiKey;
+  }
+  return headers;
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   initProviderSelection();
+  initSettings();
   initMarkdownAndMermaid();
   initHealthChecks();
   initAutoSync();
@@ -25,6 +36,88 @@ function initProviderSelection() {
     const saved = (result && (result.recruitcopilot_provider || result.recruitsage_provider)) ? (result.recruitcopilot_provider || result.recruitsage_provider) : "gemini";
     setProvider(saved, false);
   });
+}
+
+// Settings Modal — Gemini API Key management
+function initSettings() {
+  const STORAGE_KEY = "recruitsage_gemini_api_key";
+
+  // Load saved key on startup
+  chrome.storage.local.get([STORAGE_KEY], (result) => {
+    if (result && result[STORAGE_KEY]) {
+      userGeminiApiKey = result[STORAGE_KEY];
+      const input = document.getElementById("input-gemini-key");
+      if (input) input.value = userGeminiApiKey;
+      showKeyStatus("Key loaded", "success");
+    }
+  });
+
+  // Open settings modal
+  const btnOpen = document.getElementById("btn-settings");
+  const btnClose = document.getElementById("btn-settings-close");
+  const overlay = document.getElementById("settings-modal-overlay");
+  if (btnOpen && overlay) {
+    btnOpen.addEventListener("click", () => overlay.classList.remove("rs-hidden"));
+  }
+  if (btnClose && overlay) {
+    btnClose.addEventListener("click", () => overlay.classList.add("rs-hidden"));
+  }
+  if (overlay) {
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) overlay.classList.add("rs-hidden");
+    });
+  }
+
+  // Show/hide key visibility toggle
+  const btnToggleVis = document.getElementById("btn-toggle-key-visibility");
+  const keyInput = document.getElementById("input-gemini-key");
+  const iconShow = document.getElementById("icon-eye-show");
+  const iconHide = document.getElementById("icon-eye-hide");
+  if (btnToggleVis && keyInput) {
+    btnToggleVis.addEventListener("click", () => {
+      const isPassword = keyInput.type === "password";
+      keyInput.type = isPassword ? "text" : "password";
+      if (iconShow) iconShow.classList.toggle("rs-hidden", isPassword);
+      if (iconHide) iconHide.classList.toggle("rs-hidden", !isPassword);
+    });
+  }
+
+  // Save key
+  const btnSave = document.getElementById("btn-save-api-key");
+  if (btnSave && keyInput) {
+    btnSave.addEventListener("click", () => {
+      const key = keyInput.value.trim();
+      if (!key) {
+        showKeyStatus("Please enter a valid API key", "error");
+        return;
+      }
+      userGeminiApiKey = key;
+      chrome.storage.local.set({ [STORAGE_KEY]: key }, () => {
+        showKeyStatus("Key saved successfully", "success");
+      });
+    });
+  }
+
+  // Clear key
+  const btnClear = document.getElementById("btn-clear-api-key");
+  if (btnClear && keyInput) {
+    btnClear.addEventListener("click", () => {
+      userGeminiApiKey = "";
+      keyInput.value = "";
+      chrome.storage.local.remove(STORAGE_KEY, () => {
+        showKeyStatus("Key cleared — using backend default", "info");
+      });
+    });
+  }
+
+  function showKeyStatus(msg, type) {
+    const el = document.getElementById("settings-key-status");
+    if (!el) return;
+    el.textContent = msg;
+    el.className = `settings-key-status settings-key-status--${type}`;
+    el.classList.remove("rs-hidden");
+    setTimeout(() => el.classList.add("rs-hidden"), 3000);
+  }
 }
 
 function setProvider(provider, save = true) {
@@ -593,7 +686,7 @@ async function scrapeAndExtractFromTab() {
 
     const res = await fetch(`${BACKEND_URL}/api/extract-drive-context`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders(),
       body: JSON.stringify({
         raw_page_text: scrapedText,
         page_url: pageUrl,
@@ -968,6 +1061,7 @@ function initEventListeners() {
     try {
       const res = await fetch(`${BACKEND_URL}/api/extract-pdf`, {
         method: "POST",
+        headers: userGeminiApiKey ? { "X-Gemini-Api-Key": userGeminiApiKey } : {},
         body: formData
       });
 
@@ -1220,7 +1314,7 @@ async function runAnalysis() {
 
     const res = await fetch(`${BACKEND_URL}/api/analyze`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders(),
       body: JSON.stringify(payload)
     });
 
@@ -2255,7 +2349,7 @@ async function sendChatMessage() {
 
     const res = await fetch(`${BACKEND_URL}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getApiHeaders(),
       body: JSON.stringify({
         company_name: currentDossier.company_name,
         context: enrichedContext,
@@ -2450,7 +2544,7 @@ async function compileMermaidInElement(container) {
     try {
       const judgeResp = await fetch(`${BACKEND_URL}/api/evaluate-mermaid`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: getApiHeaders(),
         body: JSON.stringify({
           mermaid_code: candidateCode || rawCode,
           error: "Mermaid client syntax error during parsing",

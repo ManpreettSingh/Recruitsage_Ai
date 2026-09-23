@@ -4300,3 +4300,177 @@ body:not(.privacy-unblurred) #input-ctc:focus {
   border-color: #C7D2FE;
   color: #4338CA;
 }
+
+/* ===== Settings Modal ===== */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(3px);
+}
+
+.settings-modal {
+  background: var(--bg-card, #1e1e2e);
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 12px;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  overflow: hidden;
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+}
+
+.settings-modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+  letter-spacing: 0.01em;
+}
+
+.settings-modal-body {
+  padding: 16px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.settings-hint {
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.settings-hint a {
+  color: var(--accent, #818cf8);
+  text-decoration: underline;
+}
+
+.settings-key-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.settings-input {
+  flex: 1;
+  background: var(--bg-input, rgba(255,255,255,0.06));
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-primary, #e2e8f0);
+  outline: none;
+  font-family: monospace;
+  transition: border-color 0.15s;
+}
+
+.settings-input:focus {
+  border-color: var(--accent, #818cf8);
+}
+
+.settings-input::placeholder {
+  color: var(--text-muted, #64748b);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-key-status {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 8px;
+  border-radius: 5px;
+}
+
+.settings-key-status--success {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.settings-key-status--error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.settings-key-status--info {
+  background: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+/* Light mode overrides for settings modal */
+[data-theme="light"] .settings-modal {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+}
+
+[data-theme="light"] .settings-modal-header {
+  border-bottom-color: #e2e8f0;
+}
+
+[data-theme="light"] .settings-modal-title {
+  color: #1e293b;
+}
+
+[data-theme="light"] .settings-label {
+  color: #1e293b;
+}
+
+[data-theme="light"] .settings-hint {
+  color: #64748b;
+}
+
+[data-theme="light"] .settings-input {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #1e293b;
+}
+
+[data-theme="light"] .settings-input:focus {
+  border-color: #6366f1;
+}
+
+[data-theme="light"] .settings-key-status--success {
+  background: #f0fdf4;
+  color: #059669;
+  border-color: #a7f3d0;
+}
+
+[data-theme="light"] .settings-key-status--error {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+[data-theme="light"] .settings-key-status--info {
+  background: #eef2ff;
+  color: #4338ca;
+  border-color: #c7d2fe;
+}

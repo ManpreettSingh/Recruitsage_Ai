@@ -2,7 +2,7 @@ import io
 import json
 import httpx
 import pypdf
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from app.models.schemas import (
@@ -18,6 +18,16 @@ from app.models.schemas import (
 from app.orchestrator import orchestrator
 from app.services.campus_service import campus_service
 from app.services.llm_router import llm_router
+from app.services.gemini_service import GeminiService
+from app.config import GEMINI_API_KEY, GEMINI_MODELS
+
+def get_gemini_service(request: Request) -> GeminiService:
+    """Returns a GeminiService using the user-supplied API key from the request header,
+    falling back to the backend default key if no header is present."""
+    user_key = request.headers.get("X-Gemini-Api-Key", "").strip()
+    if user_key:
+        return GeminiService(api_key=user_key)
+    return GeminiService()  # uses GEMINI_API_KEY from config
 
 app = FastAPI(
     title="Recruit Copilot Backend API",
@@ -58,13 +68,14 @@ async def get_llm_status():
     return await llm_router.get_status()
 
 @app.post("/api/extract-drive-context", response_model=DriveExtractionResponse)
-async def extract_drive_context(request: DriveExtractionRequest):
-    raw_text = (request.raw_page_text or "").strip()
-    if not raw_text and request.page_url and request.page_url.startswith("http"):
+async def extract_drive_context(request: Request, body: DriveExtractionRequest):
+    gemini_svc = get_gemini_service(request)
+    raw_text = (body.raw_page_text or "").strip()
+    if not raw_text and body.page_url and body.page_url.startswith("http"):
         try:
             import httpx
             async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-                res = await client.get(request.page_url)
+                res = await client.get(body.page_url)
                 if res.status_code == 200:
                     raw_text = res.text
         except Exception as e:
@@ -72,7 +83,7 @@ async def extract_drive_context(request: DriveExtractionRequest):
 
     if not raw_text:
         raise HTTPException(status_code=400, detail="raw_page_text or a valid page_url is required")
-    parsed, actual_provider = await llm_router.extract_drive_context(raw_text, provider=request.provider)
+    parsed, actual_provider = await llm_router.extract_drive_context(raw_text, provider=body.provider, gemini_svc=gemini_svc)
     if isinstance(parsed, dict):
         parsed["company_name"] = parsed.get("company_name") or "Unknown Company"
         parsed["role"] = parsed.get("role") or "Technical Role"
@@ -200,26 +211,28 @@ async def extract_pdf_from_url(request: PdfUrlExtractRequest):
         raise HTTPException(status_code=500, detail=f"Failed to process PDF from URL: {str(e)}")
 
 @app.post("/api/analyze", response_model=DossierResponse)
-async def analyze_company(request: CompanyAnalysisRequest):
-    if not request.company_name or not request.company_name.strip():
+async def analyze_company(request: Request, body: CompanyAnalysisRequest):
+    if not body.company_name or not body.company_name.strip():
         raise HTTPException(status_code=400, detail="company_name is required")
+    gemini_svc = get_gemini_service(request)
     try:
-        dossier = await orchestrator.execute_task_graph(request)
+        dossier = await orchestrator.execute_task_graph(body, gemini_svc=gemini_svc)
         return dossier
     except Exception as e:
         print(f"[API] Error analyzing company: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/chat")
-async def chat_doubt_solver(request: ChatQueryRequest):
-    if not request.company_name:
+async def chat_doubt_solver(request: Request, body: ChatQueryRequest):
+    if not body.company_name:
         raise HTTPException(status_code=400, detail="company_name is required")
-    
-    messages = [{"role": m.role, "content": m.content} for m in request.messages]
-    
-    context = dict(request.context) if isinstance(request.context, dict) else {}
+
+    gemini_svc = get_gemini_service(request)
+    messages = [{"role": m.role, "content": m.content} for m in body.messages]
+
+    context = dict(body.context) if isinstance(body.context, dict) else {}
     target_role = context.get("role") or "Software Engineer"
-    
+
     # Ensure campus questions are fully loaded so AI never hallucinates or falls back to generic answers
     prep_guide = context.get("prep_guide")
     if not isinstance(prep_guide, dict):
@@ -231,12 +244,12 @@ async def chat_doubt_solver(request: ChatQueryRequest):
         context["campus_intel"] = campus_intel
 
     thapar_qs = prep_guide.get("thapar_past_questions") or campus_intel.get("thapar_past_questions") or []
-    
+
     # If Optum or sparse Thapar questions, guarantee full loading from campus_service
-    if (not thapar_qs or "optum" in request.company_name.lower()) and len(thapar_qs) < 20:
+    if (not thapar_qs or "optum" in body.company_name.lower()) and len(thapar_qs) < 20:
         from app.services.campus_service import campus_service
         enriched_thapar, enriched_other = campus_service.get_company_role_questions(
-            request.company_name, target_role, []
+            body.company_name, target_role, []
         )
         if enriched_thapar:
             context["prep_guide"]["thapar_past_questions"] = enriched_thapar
@@ -244,15 +257,15 @@ async def chat_doubt_solver(request: ChatQueryRequest):
         if enriched_other and not (prep_guide.get("other_campus_questions") or campus_intel.get("other_campus_questions")):
             context["prep_guide"]["other_campus_questions"] = enriched_other
             context["campus_intel"]["other_campus_questions"] = enriched_other
-    
+
     async def event_generator():
         async for chunk in llm_router.stream_chat(
-            company_name=request.company_name,
+            company_name=body.company_name,
             context=context,
             messages=messages,
-            provider=request.provider
+            provider=body.provider,
+            gemini_svc=gemini_svc
         ):
-            # Send chunks as SSE formatted data
             yield f"data: {json.dumps({'delta': chunk})}\n\n"
         yield "data: [DONE]\n\n"
 

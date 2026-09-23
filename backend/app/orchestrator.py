@@ -18,7 +18,7 @@ class ResearchOrchestrator:
     def __init__(self):
         pass
 
-    async def execute_task_graph(self, req: CompanyAnalysisRequest) -> DossierResponse:
+    async def execute_task_graph(self, req: CompanyAnalysisRequest, gemini_svc=None) -> DossierResponse:
         """
         Executes the Lean Asynchronous Task-Graph:
         - 4 Worker Agents gather context in parallel via asyncio.gather().
@@ -82,7 +82,8 @@ class ResearchOrchestrator:
             eligibility_text=req.eligibility_text or "",
             skills=req.skills or [],
             additional_context=req.additional_context or "",
-            provider=req.provider
+            provider=req.provider,
+            gemini_svc=gemini_svc
         )
 
         elapsed = time.time() - start_time
@@ -100,7 +101,8 @@ class ResearchOrchestrator:
             campus_intel=campus_data,
             review_snippets=review_results,
             red_flag_snippets=red_flag_results,
-            provider=req.provider
+            provider=req.provider,
+            gemini_svc=gemini_svc
         )
 
         if not isinstance(eval_raw, dict):
