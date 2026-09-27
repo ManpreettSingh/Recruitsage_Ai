@@ -6,6 +6,8 @@ from typing import List, Dict, Any
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 
+import time
+
 BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -15,30 +17,27 @@ BROWSER_HEADERS = {
 class SearchService:
     def __init__(self):
         self.tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
+        self._cache: Dict[str, Any] = {}
+        self._cache_ttl = 3600  # 1-hour in-memory cache
+        self._semaphore = asyncio.Semaphore(2)
 
     async def _safe_search(self, query: str, max_results: int = 4) -> List[Dict[str, str]]:
         """
-        Executes a DDGS search with error handling and cleans the results.
+        Executes a DDGS search with error handling, concurrency limiting, and in-memory caching.
         """
-        def run_sync():
-            results = []
-            try:
-                with DDGS() as ddgs:
-                    for r in ddgs.text(query, max_results=max_results):
-                        title = r.get("title", "").strip()
-                        href = r.get("href", "").strip()
-                        body = r.get("body", "").strip()
-                        if href and (title or body):
-                            results.append({
-                                "title": title,
-                                "url": href,
-                                "snippet": body
-                            })
-            except Exception as e:
-                # Retry once without region if needed
+        norm_query = " ".join(query.lower().split())
+        now = time.time()
+        if norm_query in self._cache:
+            ts, cached_res = self._cache[norm_query]
+            if now - ts < self._cache_ttl:
+                return list(cached_res)
+
+        async with self._semaphore:
+            def run_sync():
+                results = []
                 try:
                     with DDGS() as ddgs:
-                        for r in ddgs.text(query, region="wt-wt", max_results=max_results):
+                        for r in ddgs.text(query, max_results=max_results):
                             title = r.get("title", "").strip()
                             href = r.get("href", "").strip()
                             body = r.get("body", "").strip()
@@ -48,11 +47,28 @@ class SearchService:
                                     "url": href,
                                     "snippet": body
                                 })
-                except Exception as e2:
-                    print(f"[SearchService] Search failed for query '{query}': {e2}")
-            return results
+                except Exception as e:
+                    # Retry once without region if needed
+                    try:
+                        with DDGS() as ddgs:
+                            for r in ddgs.text(query, region="wt-wt", max_results=max_results):
+                                title = r.get("title", "").strip()
+                                href = r.get("href", "").strip()
+                                body = r.get("body", "").strip()
+                                if href and (title or body):
+                                    results.append({
+                                        "title": title,
+                                        "url": href,
+                                        "snippet": body
+                                    })
+                    except Exception as e2:
+                        print(f"[SearchService] Search failed for query '{query}': {e2}")
+                return results
 
-        return await asyncio.to_thread(run_sync)
+            res = await asyncio.to_thread(run_sync)
+            if res:
+                self._cache[norm_query] = (now, res)
+            return res
 
     async def _search_tavily(self, query: str, max_results: int = 4) -> List[Dict[str, str]]:
         """
@@ -277,21 +293,24 @@ class SearchService:
         clean_role = (role or "software engineer").replace('"', '').strip()
         skills_hint = " ".join((skills or [])[:3])
 
-        # 1. Query Tavily if API key is present
-        tavily_q = f"{clean} {clean_role} interview questions coding online assessment test pattern"
-        tavily_results = await self._search_tavily(tavily_q, max_results=3)
+        role_word = clean_role.split()[0] if clean_role else ""
 
-        # 2. Targeted search queries on high-yield interview archives
-        q1 = f'"{clean}" "{clean_role}" interview questions site:geeksforgeeks.org'
-        q2 = f'"{clean}" interview questions site:leetcode.com/discuss'
-        q3 = f'"{clean}" technical interview questions coding Glassdoor AmbitionBox'
-        q4 = f'"{clean}" online assessment test pattern coding questions 2024 2025 {skills_hint}'
+        # 1. Query Tavily if API key is present
+        tavily_q = f"{clean} {clean_role} interview questions coding online assessment".strip()
+        tavily_results = await self._search_tavily(tavily_q, max_results=4)
+
+        # 2. High-recall search queries covering all major placement & tech interview archives
+        # Note: Keep queries concise to prevent DuckDuckGo 0-result boolean dropouts
+        q1 = f"{clean} interview questions"
+        q2 = f"{clean} interview experience"
+        q3 = f"{clean} AmbitionBox interview"
+        q4 = f"{clean} {role_word} interview" if role_word else f"{clean} technical interview"
 
         r1, r2, r3, r4 = await asyncio.gather(
             self._safe_search(q1, max_results=3),
             self._safe_search(q2, max_results=3),
             self._safe_search(q3, max_results=3),
-            self._safe_search(q4, max_results=2)
+            self._safe_search(q4, max_results=3)
         )
 
         seen_urls = set()
@@ -305,7 +324,7 @@ class SearchService:
         # 3. Deep scrape top 2 relevant interview pages (GFG / LeetCode / Glassdoor)
         interview_candidates = [
             r for r in combined
-            if any(dom in r.get("url", "") for dom in ["geeksforgeeks.org", "leetcode.com", "glassdoor", "codinginterview", "codejeet"])
+            if any(dom in r.get("url", "") for dom in ["geeksforgeeks.org", "leetcode.com", "glassdoor", "ambitionbox", "codinginterview"])
         ]
         if interview_candidates:
             crawl_tasks = [self._scrape_interview_page(ic["url"]) for ic in interview_candidates[:2]]
@@ -325,21 +344,23 @@ class SearchService:
         3. LinkedIn corporate footprint, follower counts (<5,000), team size, and founding year
         """
         clean = company.replace('"', '').strip()
-        q1 = f"{clean} service agreement bond penalty salary"
-        q2 = f"{clean} delayed joining offer revoked layoff 2024 2025"
-        q3 = f"site:linkedin.com/company \"{clean}\" followers employees"
-        q4 = f"\"{clean}\" founded year employees headcount startup Glassdoor ZaubaCorp"
+        q1 = f"{clean} service agreement bond salary"
+        q2 = f"{clean} layoff delayed joining"
+        q3 = f"{clean} internship conversion rate"
+        q4 = f"{clean} intern PPO rate"
+        q5 = f"{clean} Glassdoor reviews culture"
 
-        r1, r2, r3, r4 = await asyncio.gather(
+        r1, r2, r3, r4, r5 = await asyncio.gather(
             self._safe_search(q1, max_results=3),
             self._safe_search(q2, max_results=3),
-            self._safe_search(q3, max_results=2),
-            self._safe_search(q4, max_results=2)
+            self._safe_search(q3, max_results=3),
+            self._safe_search(q4, max_results=3),
+            self._safe_search(q5, max_results=2)
         )
 
         seen = set()
         flags = []
-        for item in r1 + r2 + r3 + r4:
+        for item in r1 + r2 + r3 + r4 + r5:
             u = item.get("url", "")
             if u not in seen:
                 seen.add(u)

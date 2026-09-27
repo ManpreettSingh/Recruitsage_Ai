@@ -11,6 +11,7 @@ from app.config import (
     QUESTIONS_FILE, 
     QUESTIONS_TEMPLATE, 
     MASTER_DB_FILE,
+    MASTER_CACHE_FILE,
     OPTUM_QUESTIONS_FILE,
     DATA_DIR
 )
@@ -627,9 +628,76 @@ class CampusService:
             if len(self.questions_data) > 0 and (not QUESTIONS_FILE.exists() or QUESTIONS_FILE.stat().st_size < 1000):
                 self._export_questions_to_csv()
 
+            # 6. Save fast pre-compiled cache for subsequent boots
+            if len(self.questions_data) > 0:
+                self._save_master_cache()
+
             return True
         except Exception as e:
             print(f"[CampusService] Warning: Failed to load Placement_Master_DB.xlsx: {e}")
+            return False
+
+    def _save_master_cache(self):
+        """Dumps parsed master database to JSON cache for sub-second future boots."""
+        try:
+            cache_payload = {
+                "questions_data": self.questions_data,
+                "company_analysis": self.company_analysis,
+                "topic_frequencies": self.topic_frequencies,
+                "category_sheets_data": self.category_sheets_data
+            }
+            with open(MASTER_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(cache_payload, f)
+            print(f"[CampusService] ⚡ Saved pre-compiled master cache ({MASTER_CACHE_FILE.name})")
+        except Exception as e:
+            print(f"[CampusService] Warning: Failed to save master cache: {e}")
+
+    def _load_master_cache(self) -> bool:
+        """Loads master question bank and topic stats from pre-compiled JSON cache."""
+        if not MASTER_CACHE_FILE.exists():
+            return False
+        
+        # Check if Excel was modified after cache was created
+        if MASTER_DB_FILE.exists() and MASTER_DB_FILE.stat().st_mtime > MASTER_CACHE_FILE.stat().st_mtime:
+            return False
+
+        try:
+            with open(MASTER_CACHE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            self.questions_data = data.get("questions_data", [])
+            self.company_analysis = data.get("company_analysis", {})
+            self.topic_frequencies = data.get("topic_frequencies", [])
+            self.category_sheets_data = data.get("category_sheets_data", {})
+
+            # Rebuild indexes
+            self.questions_by_company = {}
+            self.questions_by_topic = {}
+            for q_item in self.questions_data:
+                comp_name = q_item.get("company_name", "")
+                if comp_name:
+                    self.questions_by_company.setdefault(comp_name, []).append(q_item)
+                topic = q_item.get("topic", "").lower()
+                if topic:
+                    self.questions_by_topic.setdefault(topic, []).append(q_item)
+                exact = q_item.get("exact_topic", "").lower()
+                if exact:
+                    self.questions_by_topic.setdefault(exact, []).append(q_item)
+
+            self.topic_freq_by_topic = {}
+            self.topic_freq_by_subtopic = {}
+            for item in self.topic_frequencies:
+                top_c = item.get("topic", "").lower()
+                sub_c = item.get("subtopic", "").lower()
+                if top_c:
+                    self.topic_freq_by_topic.setdefault(top_c, []).append(item)
+                if sub_c:
+                    self.topic_freq_by_subtopic[sub_c] = item
+
+            print(f"[CampusService] ⚡ Loaded from pre-compiled cache: {len(self.questions_data)} questions across {len(self.questions_by_company)} companies")
+            return True
+        except Exception as e:
+            print(f"[CampusService] Warning: Error reading master cache: {e}")
             return False
 
     def _export_questions_to_csv(self):
@@ -672,11 +740,13 @@ class CampusService:
                 print(f"[CampusService] Warning: Error loading {placement_target}: {e}")
                 self.placements_data = []
 
-        # 2. Try loading from Placement_Master_DB.xlsx first
-        loaded_excel = self._load_master_excel()
+        # 2. Try loading from fast pre-compiled cache first, then Excel
+        loaded = self._load_master_cache()
+        if not loaded:
+            loaded = self._load_master_excel()
 
-        # 3. Fallback to question_bank.csv if Excel wasn't loaded
-        if not loaded_excel or len(self.questions_data) == 0:
+        # 3. Fallback to question_bank.csv if neither cache nor Excel was loaded
+        if not loaded or len(self.questions_data) == 0:
             question_target = QUESTIONS_FILE if QUESTIONS_FILE.exists() else QUESTIONS_TEMPLATE
             if question_target.exists():
                 try:
@@ -1028,8 +1098,48 @@ class CampusService:
             "thapar_past_questions": thapar_questions,
             "other_campus_questions": other_campus_questions,
             "topic_breakdown": topic_breakdown,
-            "deep_prep": deep_prep
+            "deep_prep": deep_prep,
+            "known_red_flags": self.get_known_company_red_flags(target_name)
         }
+
+    def get_known_company_red_flags(self, company: str) -> List[Dict[str, Any]]:
+        """
+        Returns verified, documented recruitment warnings and placement realities
+        for major campus visiting companies (e.g. Razorpay's ~5-10% intern PPO conversion rate,
+        prolonged joining delays at IT services firms, or aggressive PIP quotas).
+        """
+        c_clean = company.strip().lower()
+        flags = []
+
+        if "razorpay" in c_clean:
+            flags.append({
+                "category": "Extremely Low Intern-to-PPO Conversion Rate (< 5-10%)",
+                "severity": "HIGH",
+                "finding": "Historically very low intern-to-PPO conversion rate (often only ~5% to 10% across cohorts). In past placement drives, Razorpay hired large cohorts of 50-70+ interns but converted only a tiny single-digit fraction into full-time Software Engineers.",
+                "advice": "Treat a Razorpay internship as excellent brand value on your resume and a great learning curve, but NEVER assume a PPO will be extended. Actively interview and prepare for other full-time off-campus roles throughout your 6-month internship period.",
+                "source_title": "Verified Campus Recruitment Reports & Tech Forum Consensus (Grapevine / Reddit r/developersIndia)",
+                "source_url": "https://www.gograpevine.com"
+            })
+        elif "paytm" in c_clean or "one97" in c_clean:
+            flags.append({
+                "category": "High Restructuring & PIP Volatility",
+                "severity": "MEDIUM",
+                "finding": "Ongoing regulatory adjustments and business restructuring have created higher performance scrutiny and department reorganizations in recent hiring cycles.",
+                "advice": "Verify the exact business unit and team charter before joining to ensure product roadmap stability.",
+                "source_title": "Industry News & Employee Sentiment",
+                "source_url": "https://www.ambitionbox.com"
+            })
+        elif "amazon" in c_clean:
+            flags.append({
+                "category": "Aggressive PIP / URA Quotas in SDE-1 Roles",
+                "severity": "MEDIUM",
+                "finding": "Certain organizations within Amazon have strict Unregretted Attrition (URA) metrics, leading to rapid PIP evaluations if initial ramp-up is slow.",
+                "advice": "Connect with current team engineers on LinkedIn to assess on-call rotation burden and manager support before your first day.",
+                "source_title": "Tech Community Consensus (r/developersIndia / Blind)",
+                "source_url": "https://www.reddit.com/r/developersIndia"
+            })
+
+        return flags
 
     def get_company_text_file_questions(self, company: str, role: str = "Software Engineer") -> List[Dict[str, Any]]:
         """
@@ -1742,36 +1852,8 @@ class CampusService:
                         }
                     ]
                 else:
-                    # General Enterprise Software Engineer
-                    questions = [
-                        {
-                            "source_drive": "DTU Campus Drive",
-                            "round_type": "Online Assessment (OA)",
-                            "question_title": f"Subarray Sum Equals K: Find total number of continuous subarrays whose sum equals K with negative numbers.",
-                            "topic": "DSA",
-                            "exact_topic": "Prefix Sum & Hash Map",
-                            "difficulty": "Medium",
-                            "notes": "Maintain prefix sum and hash map frequency of `prefix_sum - K` for O(N) time."
-                        },
-                        {
-                            "source_drive": "NIT Trichy Drive",
-                            "round_type": "Technical Round 1",
-                            "question_title": f"Process Synchronization & Concurrency: Explain 4 Coffman conditions and Banker's Algorithm.",
-                            "topic": "Operating Systems",
-                            "exact_topic": "Deadlock Prevention",
-                            "difficulty": "Medium",
-                            "notes": "Mutual Exclusion, Hold and Wait, No Preemption, Circular Wait. Explain lock hierarchies."
-                        },
-                        {
-                            "source_drive": "NSUT Campus Drive",
-                            "round_type": "Technical Round 2",
-                            "question_title": f"Database Indexing Deep-Dive: Why B+ Trees are preferred over Hash Maps and Binary Trees in MySQL InnoDB.",
-                            "topic": "DBMS",
-                            "exact_topic": "B+ Tree Indexing & Disk I/O",
-                            "difficulty": "Medium",
-                            "notes": "Linked leaf node range scans and high branching factor minimizing disk page seeks."
-                        }
-                    ]
+                    # Do not inject fake campus questions for unknown companies
+                    questions = []
 
         return [
             {

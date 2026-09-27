@@ -1,18 +1,88 @@
 // Recruit Copilot Side Panel Controller - Professional Grade
+// Live Production AWS EC2 Endpoint with SSL:
+const BACKEND_URL = "https://13.234.21.16.nip.io";
+// Local Dev: const BACKEND_URL = "http://localhost:8000";
 
-const BACKEND_URL = "http://localhost:8000";
+// --- PostHog Product & User Telemetry Engine ---
+const POSTHOG_KEY = "phc_tmxzBvFThzGgUis7qHdkCgXjrapCSdZL3EWVnXs9uwRn";
+const POSTHOG_HOST = "https://us.i.posthog.com";
+let currentUserId = null;
+const currentSessionId = "sess_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now().toString(36);
+
+async function getUserId() {
+  if (currentUserId) return currentUserId;
+  try {
+    const res = await chrome.storage.local.get(["copilot_user_id"]);
+    if (res && res.copilot_user_id) {
+      currentUserId = res.copilot_user_id;
+    } else {
+      currentUserId = "student_" + Math.random().toString(36).substring(2, 10) + "_" + Date.now().toString(36);
+      await chrome.storage.local.set({ copilot_user_id: currentUserId });
+    }
+  } catch (e) {
+    currentUserId = "student_temp";
+  }
+  return currentUserId;
+}
+
+// Eagerly hydrate user ID into memory on script load
+getUserId();
+
+function posthogCapture(eventName, properties = {}) {
+  getUserId().then((distinctId) => {
+    fetch(`${POSTHOG_HOST}/capture/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: POSTHOG_KEY,
+        event: eventName,
+        properties: {
+          distinct_id: distinctId,
+          $session_id: currentSessionId,
+          $lib: "chrome-extension",
+          version: "1.2.0",
+          ...properties
+        },
+        timestamp: new Date().toISOString()
+      }),
+      keepalive: true
+    }).catch(() => {});
+  }).catch(() => {});
+}
+
+// Global Client-Side Error Telemetry for PostHog
+window.addEventListener("error", (event) => {
+  posthogCapture("client_error", {
+    message: event.message,
+    filename: event.filename ? event.filename.split("/").pop() : "unknown",
+    lineno: event.lineno,
+    colno: event.colno
+  });
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  posthogCapture("client_unhandled_promise_rejection", {
+    reason: String(event.reason).slice(0, 300)
+  });
+});
 
 let currentDossier = null;
 let chatHistory = [];
 let currentRawPageText = "";
+let currentPageUrl = "";
 let attachedPdfText = "";
 let attachedPdfFilename = "";
-let currentProvider = "gemini"; // "gemini" or "ollama"
+let currentProvider = "gemini";
 let userGeminiApiKey = ""; // Set by user in Settings, stored in chrome.storage.local
 
 // Returns headers object for all backend API calls, including the user's Gemini API key if set
 function getApiHeaders(extra = {}) {
-  const headers = { "Content-Type": "application/json", ...extra };
+  const headers = { 
+    "Content-Type": "application/json",
+    "X-Client-Id": currentUserId || "anonymous_student",
+    "X-Session-Id": currentSessionId,
+    ...extra 
+  };
   if (userGeminiApiKey) {
     headers["X-Gemini-Api-Key"] = userGeminiApiKey;
   }
@@ -20,23 +90,16 @@ function getApiHeaders(extra = {}) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  posthogCapture("extension_opened");
   initTheme();
-  initProviderSelection();
   initSettings();
   initMarkdownAndMermaid();
   initHealthChecks();
   initAutoSync();
   initEventListeners();
   renderAlumniSection();
+  initOnboardingTour();
 });
-
-// Hybrid LLM Provider Management Engine (Gemini vs Ollama)
-function initProviderSelection() {
-  chrome.storage.local.get(["recruitcopilot_provider", "recruitsage_provider"], (result) => {
-    const saved = (result && (result.recruitcopilot_provider || result.recruitsage_provider)) ? (result.recruitcopilot_provider || result.recruitsage_provider) : "gemini";
-    setProvider(saved, false);
-  });
-}
 
 // Settings Modal — Gemini API Key management
 function initSettings() {
@@ -110,6 +173,22 @@ function initSettings() {
     });
   }
 
+  // Restart onboarding tour button
+  const btnRestartTour = document.getElementById("btn-restart-tour");
+  if (btnRestartTour) {
+    btnRestartTour.addEventListener("click", () => {
+      chrome.storage.local.remove(["has_seen_input_tour", "has_seen_results_tour"], () => {
+        if (overlay) overlay.classList.add("rs-hidden");
+        const dossierContainer = document.getElementById("dossier-container");
+        if (dossierContainer && !dossierContainer.classList.contains("rs-hidden")) {
+          startTour("results");
+        } else {
+          startTour("input");
+        }
+      });
+    });
+  }
+
   function showKeyStatus(msg, type) {
     const el = document.getElementById("settings-key-status");
     if (!el) return;
@@ -120,29 +199,8 @@ function initSettings() {
   }
 }
 
-function setProvider(provider, save = true) {
-  currentProvider = provider === "ollama" ? "ollama" : "gemini";
-  const geminiBtn = document.getElementById("btn-model-gemini");
-  const ollamaBtn = document.getElementById("btn-model-ollama");
-
-  if (geminiBtn && ollamaBtn) {
-    if (currentProvider === "gemini") {
-      geminiBtn.classList.add("active");
-      geminiBtn.setAttribute("aria-checked", "true");
-      ollamaBtn.classList.remove("active");
-      ollamaBtn.setAttribute("aria-checked", "false");
-    } else {
-      ollamaBtn.classList.add("active");
-      ollamaBtn.setAttribute("aria-checked", "true");
-      geminiBtn.classList.remove("active");
-      geminiBtn.setAttribute("aria-checked", "false");
-    }
-  }
-
-  if (save) {
-    chrome.storage.local.set({ recruitcopilot_provider: currentProvider });
-    console.log(`[Recruit Copilot] Active LLM provider set to: ${currentProvider}`);
-  }
+function setProvider(provider, save = false) {
+  currentProvider = "gemini";
 }
 
 // Theme Management Engine (Official Recruit Copilot Dark / Light Modes)
@@ -523,19 +581,13 @@ async function initHealthChecks() {
       const data = await res.json();
       dot.className = "status-dot status-dot-active";
       const geminiOnline = data.llm && data.llm.active_available && data.llm.active_available.gemini;
-      const ollamaOnline = data.llm && data.llm.active_available && data.llm.active_available.ollama;
 
-      if (geminiOnline && ollamaOnline) {
-        label.innerText = "Hybrid Ready";
-        label.title = "Both Gemini API & Local Ollama online";
-      } else if (geminiOnline) {
-        label.innerText = "Gemini Ready";
-        label.title = "Gemini API online, Ollama offline";
-      } else if (ollamaOnline) {
-        label.innerText = "Ollama Ready";
-        label.title = "Ollama online, Gemini API unconfigured";
+      if (geminiOnline) {
+        label.innerText = "Online";
+        label.title = "Connected to Gemini Cloud Engine";
       } else {
-        label.innerText = "Engine Ready";
+        label.innerText = "Ready";
+        label.title = "Recruit Copilot Online";
       }
     } else {
       markOffline();
@@ -557,6 +609,9 @@ function initAutoSync() {
       if (result.last_extracted_company.raw_page_text) {
         currentRawPageText = result.last_extracted_company.raw_page_text;
       }
+      if (result.last_extracted_company.page_url) {
+        currentPageUrl = result.last_extracted_company.page_url;
+      }
       populateInputs(result.last_extracted_company);
     }
     // Always trigger live scrape + LLM conversion when sidepanel opens
@@ -564,8 +619,20 @@ function initAutoSync() {
   });
 }
 
+// Resets the Auto-Fill/Sync button back to its default state
+function resetSyncBtn() {
+  const syncBtn = document.getElementById("btn-sync-page");
+  if (syncBtn) {
+    syncBtn.innerHTML = `
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+      Auto-Fill
+    `;
+  }
+}
+
 // Live Page Scraper + LLM Conversion Engine
 async function scrapeAndExtractFromTab() {
+  posthogCapture("autofill_clicked");
   const syncBtn = document.getElementById("btn-sync-page");
   const aiBadge = document.getElementById("ai-extract-badge");
 
@@ -676,11 +743,45 @@ async function scrapeAndExtractFromTab() {
     }
 
     currentRawPageText = scrapedText;
+    currentPageUrl = pageUrl;
 
-    // Step 2: Feed into LLM (Gemini / Ollama) to convert raw text into structured JSON
-    const provDisplay = currentProvider === "ollama" ? "Ollama" : "Gemini";
+    // Helper: Extract Job ID from URL bar (Superset, Thapar Recruit, LinkedIn, etc.)
+    function extractJobIdFromUrl(url) {
+      if (!url) return null;
+      const clean = url.trim();
+      const m = clean.match(/(?:\/jobs?\/view\/|\/jobs?\/|\/drives?\/|\/placements?\/)([a-zA-Z0-9_\-\.]+)/i)
+        || clean.match(/[?&#](?:job_?id|jobId|drive_?id|notice_?id|id)=([a-zA-Z0-9_\-\.]+)/i);
+      return m ? m[1].toLowerCase() : null;
+    }
+
+    const jobId = extractJobIdFromUrl(pageUrl);
+    const cleanUrl = pageUrl.split("?")[0].split("#")[0].replace(/\/+$/, "").toLowerCase();
+    const primaryCacheKey = jobId ? `autofill_cache_job_${jobId}` : `autofill_cache_url_${cleanUrl}`;
+
+    // Step 2A: Check local client cache first for instant 0ms retrieval
+    const localCached = await new Promise((resolve) => {
+      chrome.storage.local.get([primaryCacheKey], (res) => {
+        resolve(res && res[primaryCacheKey] ? res[primaryCacheKey] : null);
+      });
+    });
+
+    if (localCached && typeof localCached === "object" && localCached.company_name) {
+      console.log(`[Recruit Copilot] Client-side Autofill Cache HIT for ${jobId || cleanUrl}`);
+      populateInputs(localCached, true);
+      chrome.storage.local.set({ last_extracted_company: localCached });
+      if (aiBadge) {
+        aiBadge.innerText = "⚡ Instant Auto-Fill (Cached)";
+        aiBadge.className = "badge-ai";
+        setTimeout(() => { if (aiBadge) aiBadge.classList.add("rs-hidden"); }, 5000);
+      }
+      posthogCapture("autofill_served", { source: "client_cache", url: pageUrl, job_id: jobId });
+      resetSyncBtn();
+      return;
+    }
+
+    // Step 2B: Not in local cache -> Feed into backend extraction engine
     if (aiBadge) {
-      aiBadge.innerText = `2/2 ${provDisplay} parsing notice...`;
+      aiBadge.innerText = "2/2 AI parsing notice...";
       aiBadge.className = "badge-ai badge-ai-pulsing";
     }
 
@@ -690,26 +791,43 @@ async function scrapeAndExtractFromTab() {
       body: JSON.stringify({
         raw_page_text: scrapedText,
         page_url: pageUrl,
-        provider: currentProvider
+        provider: "gemini"
       })
     });
 
     if (res.ok) {
       const parsedJson = await res.json();
+      parsedJson.page_url = pageUrl;
       console.log("[Recruit Copilot] LLM Parsed JSON:", parsedJson);
 
-      // Step 3: Fill the input fields in the form with the parsed JSON!
+      // Step 3: Save to client-side cache keyed by Job ID and Clean URL
+      const cacheToSave = {
+        last_extracted_company: parsedJson,
+        [primaryCacheKey]: parsedJson
+      };
+      if (jobId) {
+        cacheToSave[`autofill_cache_job_${jobId}`] = parsedJson;
+      }
+      cacheToSave[`autofill_cache_url_${cleanUrl}`] = parsedJson;
+      chrome.storage.local.set(cacheToSave);
+
+      // Fill the input fields in the form with the parsed JSON
       populateInputs(parsedJson, true);
-      chrome.storage.local.set({ last_extracted_company: parsedJson });
 
       if (aiBadge) {
-        const usedProv = parsedJson.active_provider === "ollama" ? "Ollama" : "Gemini";
-        aiBadge.innerText = `Form Filled via ${usedProv}`;
+        aiBadge.innerText = parsedJson.is_cached ? "⚡ Instant Auto-Fill (Server Cached)" : "Form Filled via AI";
         aiBadge.className = "badge-ai";
         setTimeout(() => {
           if (aiBadge) aiBadge.classList.add("rs-hidden");
         }, 5000);
       }
+
+      posthogCapture("autofill_served", {
+        source: parsedJson.is_cached ? "server_cache" : "gemini_llm",
+        url: pageUrl,
+        job_id: jobId,
+        is_cached: Boolean(parsedJson.is_cached)
+      });
     } else {
       const errText = await res.text();
       console.warn("[Recruit Copilot] LLM extraction error:", errText);
@@ -727,16 +845,8 @@ async function scrapeAndExtractFromTab() {
   } finally {
     resetSyncBtn();
   }
-
-  function resetSyncBtn() {
-    if (syncBtn) {
-      syncBtn.innerHTML = `
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-        Sync Page
-      `;
-    }
-  }
 }
+
 
 function populateInputs(data, isLlmParsed = false) {
   if (!data) return;
@@ -851,6 +961,7 @@ function clearQueryTarget() {
   attachedPdfText = "";
   attachedPdfFilename = "";
   currentRawPageText = "";
+  currentPageUrl = "";
 
   const fileInput = document.getElementById("input-pdf-file");
   if (fileInput) fileInput.value = "";
@@ -859,8 +970,14 @@ function clearQueryTarget() {
   const dropzone = document.getElementById("pdf-dropzone");
   if (dropzone) dropzone.style.display = "flex";
 
+  // Stop any in-progress scraping animation
+  resetSyncBtn();
+
   const aiBadge = document.getElementById("ai-extract-badge");
-  if (aiBadge) aiBadge.classList.add("rs-hidden");
+  if (aiBadge) {
+    aiBadge.className = "badge-ai";
+    aiBadge.classList.add("rs-hidden");
+  }
 
   chrome.storage.local.remove(["last_extracted_company"]);
   updateQueryPanelSummary();
@@ -869,6 +986,40 @@ function clearQueryTarget() {
 
   const compEl = document.getElementById("input-company");
   if (compEl) compEl.focus();
+}
+
+// Resets everything back to the initial state so user can analyze a new company
+function resetToNewCompany() {
+  // 1. Clear state
+  currentDossier = null;
+  chatHistory = [];
+
+  // 2. Hide results and errors
+  const dossierContainer = document.getElementById("dossier-container");
+  const progressContainer = document.getElementById("progress-container");
+  const errorBanner = document.getElementById("error-banner");
+  if (dossierContainer) dossierContainer.classList.add("rs-hidden");
+  if (progressContainer) progressContainer.classList.add("rs-hidden");
+  if (errorBanner) errorBanner.classList.add("rs-hidden");
+
+  // 3. Clear all inputs and scraping state
+  clearQueryTarget();
+
+  // 4. Reset chat UI
+  const chatInput = document.getElementById("chat-input");
+  if (chatInput) chatInput.value = "";
+  const chatBanner = document.getElementById("chat-active-company-banner");
+  if (chatBanner) chatBanner.style.display = "none";
+  const chatMessages = document.getElementById("chat-messages");
+  if (chatMessages) chatMessages.innerHTML = "";
+
+  // 5. Show input form open
+  toggleQueryPanel(true);
+
+  // 6. Scroll to top
+  window.scrollTo(0, 0);
+  const appShell = document.querySelector(".app-shell");
+  if (appShell) appShell.scrollTop = 0;
 }
 
 // 3. Event Listeners
@@ -920,15 +1071,6 @@ function initEventListeners() {
   } catch (e) {}
   setPrivacyMode(savedPrivacy === "true");
 
-  // Hybrid Model Provider Toggle Listeners
-  const geminiBtn = document.getElementById("btn-model-gemini");
-  const ollamaBtn = document.getElementById("btn-model-ollama");
-  if (geminiBtn) {
-    geminiBtn.addEventListener("click", () => setProvider("gemini", true));
-  }
-  if (ollamaBtn) {
-    ollamaBtn.addEventListener("click", () => setProvider("ollama", true));
-  }
 
   // Query Panel Controls
   const toggleQueryBtn = document.getElementById("btn-toggle-query-panel");
@@ -961,6 +1103,11 @@ function initEventListeners() {
 
   document.getElementById("btn-sync-page").addEventListener("click", scrapeAndExtractFromTab);
   document.getElementById("btn-analyze").addEventListener("click", runAnalysis);
+
+  const resetCompanyBtn = document.getElementById("btn-reset-company");
+  if (resetCompanyBtn) {
+    resetCompanyBtn.addEventListener("click", resetToNewCompany);
+  }
 
   // External trigger from page floating button
   chrome.runtime.onMessage.addListener((msg) => {
@@ -1177,10 +1324,16 @@ function initEventListeners() {
       document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("is-active"));
 
       btn.classList.add("is-active");
-      const targetPane = document.getElementById(btn.getAttribute("data-tab"));
+      const tabId = btn.getAttribute("data-tab");
+      const targetPane = document.getElementById(tabId);
       if (targetPane) targetPane.classList.add("is-active");
 
-      if (btn.getAttribute("data-tab") === "tab-alumni") {
+      posthogCapture("tab_switched", {
+        tab: tabId,
+        company: currentDossier ? currentDossier.company_name : ""
+      });
+
+      if (tabId === "tab-alumni") {
         renderAlumniSection();
       }
     });
@@ -1274,6 +1427,8 @@ async function runAnalysis() {
   }
 
   hideError();
+  const analysisStartTime = Date.now();
+  posthogCapture("analysis_started", { company: companyName, role: role, provider: currentProvider });
   updateQueryPanelSummary();
   toggleQueryPanel(true); // Automatically collapse query panel on audit start to maximize screen space
   showProgress();
@@ -1298,6 +1453,15 @@ async function runAnalysis() {
   const additionalContext = additionalContextParts.join("\n\n");
 
   try {
+    if (!currentPageUrl) {
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs && tabs[0] && tabs[0].url) {
+          currentPageUrl = tabs[0].url;
+        }
+      } catch (_) {}
+    }
+
     const payload = {
       company_name: companyName,
       role: role,
@@ -1308,6 +1472,7 @@ async function runAnalysis() {
       skills: skills,
       jd_text: jd,
       raw_page_text: currentRawPageText || jd || "",
+      page_url: currentPageUrl || "",
       additional_context: additionalContext,
       provider: currentProvider
     };
@@ -1327,11 +1492,23 @@ async function runAnalysis() {
 
     const dossier = await res.json();
     currentDossier = dossier;
+    const durationSec = Math.round((Date.now() - analysisStartTime) / 100) / 10;
+    posthogCapture("analysis_completed", {
+      company: companyName,
+      role: role,
+      is_cached: Boolean(dossier.is_cached),
+      duration_seconds: durationSec
+    });
     renderDossier(dossier);
     hideProgress();
   } catch (error) {
     stepTimers.forEach(t => clearTimeout(t));
     hideProgress();
+    posthogCapture("analysis_failed", {
+      company: companyName,
+      role: role,
+      error: error.message
+    });
     showError(`Analysis failed: ${error.message}. Please make sure the backend is running.`);
   }
 }
@@ -1408,16 +1585,9 @@ function renderDossier(dossier) {
   // Active Provider Badge on Hero Card
   const provBadge = document.getElementById("hero-provider-badge");
   if (provBadge) {
-    const actProv = (dossier.active_provider || currentProvider).toLowerCase();
-    if (actProv.includes("ollama")) {
-      provBadge.innerText = "Ollama (Qwen 2.5)";
-      provBadge.classList.add("is-ollama");
-      provBadge.title = "Generated using local Ollama model";
-    } else {
-      provBadge.innerText = "Gemini (Flash Lite)";
-      provBadge.classList.remove("is-ollama");
-      provBadge.title = "Generated using Google Gemini model";
-    }
+    const cachePill = dossier.is_cached ? " • ⚡ Cached" : "";
+    provBadge.innerText = `Gemini (Flash Lite)${cachePill}`;
+    provBadge.title = dossier.is_cached ? `Instant cache hit (${dossier.cache_key || ''})` : "Generated using Google Gemini model";
   }
 
   document.getElementById("sources-count").innerText = `${dossier.raw_sources_count || 12} sources verified`;
@@ -1536,7 +1706,7 @@ function renderDossier(dossier) {
     trapsList.innerHTML = `<li>No hidden deductions or bond clauses found.</li>`;
   }
 
-  // Tab 3: Campus Records
+  // Tab 2: Last Year Hiring Statistics
   const campus = dossier.campus_intel || {};
   const campusBanner = document.getElementById("campus-status-banner");
   if (campus.visited_previously) {
@@ -1578,78 +1748,15 @@ function renderDossier(dossier) {
       `;
       visitsContainer.appendChild(div);
     });
-  }
-
-  // Topic Breakdown Card
-  const topicCard = document.getElementById("campus-topic-card");
-  const topicPills = document.getElementById("campus-topic-pills");
-  const topicSummary = document.getElementById("campus-topic-summary");
-  const topicDiff = document.getElementById("campus-topic-diff");
-  const questionsCount = document.getElementById("campus-questions-count");
-
-  if (campus.topic_breakdown && campus.topic_breakdown.weights && campus.topic_breakdown.weights.length > 0) {
-    if (topicCard) topicCard.style.display = "block";
-    const tb = campus.topic_breakdown;
-    const diff = (tb.difficulty || "Medium").toLowerCase();
-    if (topicDiff) {
-      topicDiff.className = `question-diff diff-${diff.includes("hard") ? "hard" : diff.includes("easy") ? "easy" : "medium"}`;
-      topicDiff.innerText = `${tb.difficulty || "Medium"} Difficulty`;
-    }
-
-    if (topicPills) {
-      topicPills.innerHTML = "";
-      tb.weights.forEach(w => {
-        const pill = document.createElement("span");
-        pill.className = "topic-pill";
-        pill.innerHTML = `<span>${escapeHtml(w.category)}</span><span class="topic-pill-val">${w.percentage}%</span>`;
-        topicPills.appendChild(pill);
-      });
-    }
-
-    if (topicSummary) {
-      topicSummary.innerText = tb.top_topics ? `Top focus topics: ${tb.top_topics} (${tb.total_questions || (campus.past_questions || []).length} past questions found).` : `${tb.total_questions || (campus.past_questions || []).length} past questions found in college database.`;
-    }
   } else {
-    if (topicCard) topicCard.style.display = "none";
+    const emptyDiv = document.createElement("div");
+    emptyDiv.className = "stack-card";
+    emptyDiv.style.color = "var(--text-muted)";
+    emptyDiv.innerText = "No previous batch placement or hiring statistics recorded for this company in college records.";
+    visitsContainer.appendChild(emptyDiv);
   }
 
-  const questionsList = document.getElementById("campus-questions-list");
-  questionsList.innerHTML = "";
-  if (campus.past_questions && campus.past_questions.length > 0) {
-    if (questionsCount) questionsCount.innerText = `${campus.past_questions.length} Questions`;
-    campus.past_questions.forEach(q => {
-      const item = document.createElement("div");
-      item.className = "question-row";
-      
-      const diffClass = (q.difficulty || "medium").toLowerCase();
-      const diffTag = diffClass.includes("hard") ? "diff-hard" : diffClass.includes("easy") ? "diff-easy" : "diff-medium";
-      const roundLabel = q.round_type || "Technical Round";
-      const topicLabel = q.topic ? (q.exact_topic ? `${q.topic} • ${q.exact_topic}` : q.topic) : "Core CS";
-      const notesContent = q.notes || q.question_details || "";
-
-      item.innerHTML = `
-        <div class="question-top">
-          <div class="question-badges">
-            <span class="question-round-badge">${escapeHtml(roundLabel)}</span>
-            <span class="question-tag">${escapeHtml(topicLabel)}</span>
-          </div>
-          <span class="question-diff ${diffTag}">${escapeHtml(q.difficulty || "Medium")}</span>
-        </div>
-        <div class="question-title">${escapeHtml(q.question_title)}</div>
-        ${notesContent ? `
-          <div class="question-notes">
-            <span class="hint-badge">Interview Tip:</span> ${escapeHtml(notesContent)}
-          </div>
-        ` : ""}
-      `;
-      questionsList.appendChild(item);
-    });
-  } else {
-    if (questionsCount) questionsCount.innerText = "0 Questions";
-    questionsList.innerHTML = `<div class="stack-card" style="color:var(--text-muted)">No past college questions found for this specific company.</div>`;
-  }
-
-  // Tab 4: Culture
+  // Tab 3: Culture
   const culture = dossier.culture || {};
   document.getElementById("culture-rating").innerText = culture.overall_rating || "3.8 / 5.0";
   document.getElementById("culture-wlb").innerText = culture.work_life_balance || "Standard engineering schedule.";
@@ -1887,17 +1994,56 @@ function renderDossier(dossier) {
     return item;
   }
 
-  // Extract divided questions: Actual Database vs Web Researched
-  let actualDbQs = prep.actual_database_questions || (dossier.campus_intel ? dossier.campus_intel.actual_database_questions : null) || [];
-  if (!Array.isArray(actualDbQs) || actualDbQs.length === 0) {
-    const thaparQs = prep.thapar_past_questions || (dossier.campus_intel ? dossier.campus_intel.thapar_past_questions : []) || [];
-    const otherQs = prep.other_campus_questions || (dossier.campus_intel ? dossier.campus_intel.other_campus_questions : []) || [];
-    actualDbQs = [...thaparQs, ...otherQs];
+  // Extract divided questions: Actual Database (Thapar ONLY) vs Web Researched (Other Colleges + Web)
+  let rawDbQs = prep.actual_database_questions || (dossier.campus_intel ? dossier.campus_intel.actual_database_questions : null) || [];
+  if (!Array.isArray(rawDbQs) || rawDbQs.length === 0) {
+    rawDbQs = prep.thapar_past_questions || (dossier.campus_intel ? dossier.campus_intel.thapar_past_questions : []) || [];
   }
 
   let webQs = prep.web_researched_questions || (dossier.campus_intel ? dossier.campus_intel.web_researched_questions : null) || [];
   if (!Array.isArray(webQs)) {
     webQs = [];
+  }
+
+  // Helper to detect if a question mentions other colleges (DTU, NSUT, NIT, IIT, BITS, COEP, etc.)
+  const isOtherCollege = (q) => {
+    if (!q) return false;
+    const txt = `${q.source_drive || ""} ${q.source || ""} ${q.source_name || ""} ${q.college || ""}`.toLowerCase();
+    const otherColleges = ["dtu", "nsut", "nit", "iit", "bits", "coep", "iiit", "vit", "srm", "manipal", "pes"];
+    return otherColleges.some(c => new RegExp(`\\b${c}\\b`, "i").test(txt));
+  };
+
+  // Strictly segregate: only Thapar database questions in actualDbQs, any other colleges routed to webQs
+  let actualDbQs = [];
+  const nonThaparFromDb = [];
+  if (Array.isArray(rawDbQs)) {
+    rawDbQs.forEach(q => {
+      if (isOtherCollege(q)) {
+        nonThaparFromDb.push(q);
+      } else {
+        actualDbQs.push(q);
+      }
+    });
+  }
+
+  // Ensure other college drive questions are routed to webQs only, never to actualDbQs
+  const otherQs = [
+    ...(prep.other_campus_questions || (dossier.campus_intel ? dossier.campus_intel.other_campus_questions : []) || []),
+    ...nonThaparFromDb
+  ];
+  if (Array.isArray(otherQs) && otherQs.length > 0) {
+    const existingWebTitles = new Set(webQs.map(q => (q.question_title || "").toLowerCase().trim()));
+    otherQs.forEach(oq => {
+      const title = (oq.question_title || "").toLowerCase().trim();
+      if (title && !existingWebTitles.has(title)) {
+        existingWebTitles.add(title);
+        const item = Object.assign({}, oq);
+        item.source_type = "web_research";
+        item.is_database = false;
+        item.source_name = oq.source_drive || oq.source_name || "Other Campus Placement Drive";
+        webQs.push(item);
+      }
+    });
   }
 
   // Update question counts in navigation tabs and group headers
@@ -1914,19 +2060,27 @@ function renderDossier(dossier) {
   if (dbCountBadge) dbCountBadge.innerText = `${actualDbQs.length} ${actualDbQs.length === 1 ? 'Question' : 'Questions'}`;
   if (webCountBadge) webCountBadge.innerText = `${webQs.length} ${webQs.length === 1 ? 'Question' : 'Questions'}`;
 
-  // Reset tab button active states to "All Questions" upon fresh dossier load
+  // Set tab button active states: if no college database records exist, auto-select Web Questions tab
   const allBtn = document.getElementById("btn-show-all-questions");
   const dbBtn = document.getElementById("btn-show-db-questions");
   const webBtn = document.getElementById("btn-show-web-questions");
   const dbGroup = document.getElementById("group-database-questions");
   const webGroup = document.getElementById("group-web-questions");
   if (allBtn && dbBtn && webBtn) {
-    allBtn.classList.add("active");
-    dbBtn.classList.remove("active");
-    webBtn.classList.remove("active");
+    if (actualDbQs.length === 0 && webQs.length > 0) {
+      allBtn.classList.remove("active");
+      dbBtn.classList.remove("active");
+      webBtn.classList.add("active");
+      if (dbGroup) dbGroup.style.display = "none";
+      if (webGroup) webGroup.style.display = "";
+    } else {
+      allBtn.classList.add("active");
+      dbBtn.classList.remove("active");
+      webBtn.classList.remove("active");
+      if (dbGroup) dbGroup.style.display = "";
+      if (webGroup) webGroup.style.display = "";
+    }
   }
-  if (dbGroup) dbGroup.style.display = "";
-  if (webGroup) webGroup.style.display = "";
 
   // Section 1: Actual Database of Last Year Questions
   const dbStack = document.getElementById("prep-database-questions-stack");
@@ -1943,7 +2097,7 @@ function renderDossier(dossier) {
         <div class="prep-empty-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></div>
         <div class="prep-empty-content">
           <div class="prep-empty-title">No past database questions found for ${escapeHtml(effRoleName)}</div>
-          <div class="prep-empty-desc">No previous recorded campus placement questions were retrieved for the <strong>${escapeHtml(effRoleName)}</strong> role at <strong>${escapeHtml(effCompName)}</strong> in the database. Check the Web Researched questions below for recent candidate technical interviews.</div>
+          <div class="prep-empty-desc">No previous recorded Thapar campus placement questions were retrieved for the <strong>${escapeHtml(effRoleName)}</strong> role at <strong>${escapeHtml(effCompName)}</strong> in the Thapar database. Check the <strong>Web Researched Questions</strong> tab for questions asked at other campus drives (DTU, NITs, BITS, etc.) and online technical discussions.</div>
         </div>
       `;
       dbStack.appendChild(emptyDiv);
@@ -2143,6 +2297,9 @@ function renderDossier(dossier) {
       tipsList.appendChild(li);
     });
   }
+
+  // Trigger Results Onboarding Walkthrough if user hasn't seen it yet
+  checkAndTriggerResultsTour();
 }
 
 // Tab 4: Alumni & Senior Network (Direct 1-Click LinkedIn Search with School Filter)
@@ -2647,4 +2804,362 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+// ==========================================================================
+// Interactive Onboarding Walkthrough Tour System (Professional Grade)
+// ==========================================================================
+
+const INPUT_TOUR_STEPS = [
+  {
+    targetId: "btn-sync-page",
+    badge: "Step 1 of 4 • Quick Start",
+    title: "1-Click Page Auto-Fill",
+    desc: "Visiting Superset, your college ERP, or LinkedIn? Click Auto-Fill to automatically extract the target company, role, stipend, and cutoffs with zero typing."
+  },
+  {
+    targetId: "input-company",
+    badge: "Step 2 of 4 • Target",
+    title: "Target Company & Profile",
+    desc: "Enter or tweak the company name and role. Recruit Copilot uses this to cross-reference historical college records, salary data, and alumni."
+  },
+  {
+    targetId: "btn-toggle-extra-ctx",
+    badge: "Step 3 of 4 • Documents",
+    title: "Upload Notice or PDF (Optional)",
+    desc: "Have an official drive notice or offer PDF? Upload it here. Our AI automatically parses bond clauses, probation periods, and branch cutoffs.",
+    onBefore: () => {
+      const drawer = document.getElementById("extra-ctx-drawer");
+      if (drawer && drawer.classList.contains("rs-hidden")) {
+        document.getElementById("btn-toggle-extra-ctx")?.click();
+      }
+    }
+  },
+  {
+    targetId: "btn-analyze",
+    badge: "Step 4 of 4 • Launch",
+    title: "Deep Intelligence Audit",
+    desc: "Click 'Analyze Company' (or press Ctrl+Enter). We'll cross-examine placement records, student reviews, salary traps, and interview questions!"
+  }
+];
+
+const RESULTS_TOUR_STEPS = [
+  {
+    targetId: "verdict-card",
+    badge: "Results Tour • 1 of 7",
+    title: "Executive Verdict & Quality Score",
+    desc: "Get an instant summary of company stability, recruitment reputation, and an AI confidence score cross-verified across student sources."
+  },
+  {
+    targetSelector: '.segment-btn[data-tab="tab-compensation"]',
+    tabId: "tab-compensation",
+    badge: "Results Tour • 2 of 7",
+    title: "True In-Hand Salary Breakdown",
+    desc: "See the real monthly take-home pay, base salary vs variable pay, joining bonuses, and hidden deductions before you sign.",
+    onBefore: () => {
+      document.querySelector('.segment-btn[data-tab="tab-compensation"]')?.click();
+    }
+  },
+  {
+    targetSelector: '.segment-btn[data-tab="tab-campus"]',
+    tabId: "tab-campus",
+    badge: "Results Tour • 3 of 7",
+    title: "Last Year Hiring Statistics",
+    desc: "Explore actual hiring numbers, past batch offers, branch cutoffs, and CGPA criteria recorded from previous recruitment drives on your campus.",
+    onBefore: () => {
+      document.querySelector('.segment-btn[data-tab="tab-campus"]')?.click();
+    }
+  },
+  {
+    targetSelector: '.segment-btn[data-tab="tab-prep"]',
+    tabId: "tab-prep",
+    badge: "Results Tour • 4 of 7",
+    title: "Past Year Questions & Prep Guide",
+    desc: "Access verified past year campus questions, web-researched interview insights, and high-frequency technical topics tailored to this company.",
+    onBefore: () => {
+      document.querySelector('.segment-btn[data-tab="tab-prep"]')?.click();
+    }
+  },
+  {
+    targetSelector: '.segment-btn[data-tab="tab-alumni"]',
+    tabId: "tab-alumni",
+    badge: "Results Tour • 5 of 7",
+    title: "College Senior & Alumni Network",
+    desc: "Connect with college alumni currently working at this exact company with 1-click filtered LinkedIn searches for referrals.",
+    onBefore: () => {
+      document.querySelector('.segment-btn[data-tab="tab-alumni"]')?.click();
+    }
+  },
+  {
+    targetSelector: '.segment-btn[data-tab="tab-chat"]',
+    tabId: "tab-chat",
+    badge: "Results Tour • 6 of 7",
+    title: "Ask AI Anything (Copilot Doubt Solver)",
+    desc: "Got doubts about bond clauses, interview questions, or work culture? Ask your dedicated AI copilot with context of this company.",
+    onBefore: () => {
+      document.querySelector('.segment-btn[data-tab="tab-chat"]')?.click();
+    }
+  },
+  {
+    targetSelector: '.segment-btn[data-tab="tab-redflags"]',
+    tabId: "tab-redflags",
+    badge: "Results Tour • 7 of 7",
+    title: "Red Flag & Safety Warning Detector",
+    desc: "Protect your career! Check for service agreements, bonds, delayed onboarding risks, and negative employee sentiment.",
+    onBefore: () => {
+      document.querySelector('.segment-btn[data-tab="tab-redflags"]')?.click();
+    }
+  }
+];
+
+let currentTourType = null; // "input" | "results"
+let currentTourStep = 0;
+let isTourActive = false;
+
+function initOnboardingTour() {
+  const btnNext = document.getElementById("btn-tour-next");
+  const btnPrev = document.getElementById("btn-tour-prev");
+  const btnSkip = document.getElementById("btn-tour-skip");
+  const btnClose = document.getElementById("btn-tour-close");
+
+  if (btnNext) btnNext.addEventListener("click", nextTourStep);
+  if (btnPrev) btnPrev.addEventListener("click", prevTourStep);
+  if (btnSkip) btnSkip.addEventListener("click", skipTour);
+  if (btnClose) btnClose.addEventListener("click", skipTour);
+
+  // Keyboard navigation
+  window.addEventListener("keydown", (e) => {
+    if (!isTourActive) return;
+    if (e.key === "Escape") {
+      skipTour();
+    } else if (e.key === "ArrowRight" || e.key === "Enter") {
+      nextTourStep();
+    } else if (e.key === "ArrowLeft") {
+      prevTourStep();
+    }
+  });
+
+  // Reposition on window resize
+  window.addEventListener("resize", () => {
+    if (!isTourActive) return;
+    const currentSteps = currentTourType === "input" ? INPUT_TOUR_STEPS : RESULTS_TOUR_STEPS;
+    const step = currentSteps[currentTourStep];
+    if (!step) return;
+    const targetEl = step.targetId ? document.getElementById(step.targetId) : document.querySelector(step.targetSelector);
+    if (targetEl) positionTourCard(targetEl);
+  });
+
+  // Check if first-time user needs the input tour
+  chrome.storage.local.get(["has_seen_input_tour"], (res) => {
+    if (!res || !res.has_seen_input_tour) {
+      setTimeout(() => {
+        const dossierContainer = document.getElementById("dossier-container");
+        if (!dossierContainer || dossierContainer.classList.contains("rs-hidden")) {
+          startTour("input");
+        }
+      }, 700);
+    }
+  });
+}
+
+function checkAndTriggerResultsTour() {
+  chrome.storage.local.get(["has_seen_results_tour"], (res) => {
+    if (!res || !res.has_seen_results_tour) {
+      setTimeout(() => {
+        startTour("results");
+      }, 800);
+    }
+  });
+}
+
+function startTour(tourType) {
+  currentTourType = tourType;
+  currentTourStep = 0;
+  isTourActive = true;
+
+  const backdrop = document.getElementById("tour-backdrop");
+  const card = document.getElementById("tour-card");
+  if (backdrop) backdrop.classList.remove("rs-hidden");
+  if (card) card.classList.remove("rs-hidden");
+
+  posthogCapture("tour_started", { tour_type: tourType });
+  renderTourStep(0);
+}
+
+function renderTourStep(index) {
+  const steps = currentTourType === "input" ? INPUT_TOUR_STEPS : RESULTS_TOUR_STEPS;
+  if (!steps || index < 0 || index >= steps.length) return;
+
+  currentTourStep = index;
+  const step = steps[index];
+
+  // Run step hook if present (e.g. activating tabs or expanding drawers)
+  if (typeof step.onBefore === "function") {
+    try {
+      step.onBefore();
+    } catch (e) {}
+  }
+
+  // Remove existing highlights
+  document.querySelectorAll(".tour-highlight").forEach(el => el.classList.remove("tour-highlight"));
+
+  // Find target element
+  const targetEl = step.targetId ? document.getElementById(step.targetId) : (step.targetSelector ? document.querySelector(step.targetSelector) : null);
+
+  if (targetEl) {
+    targetEl.classList.add("tour-highlight");
+    try {
+      targetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (e) {}
+  }
+
+  // Populate card elements
+  const badgeEl = document.getElementById("tour-badge");
+  const titleEl = document.getElementById("tour-step-title");
+  const descEl = document.getElementById("tour-step-desc");
+  const counterEl = document.getElementById("tour-counter");
+  const btnPrev = document.getElementById("btn-tour-prev");
+  const btnNext = document.getElementById("btn-tour-next");
+
+  if (badgeEl) badgeEl.innerText = step.badge || `Tour • ${index + 1} of ${steps.length}`;
+  if (titleEl) titleEl.innerText = step.title;
+  if (descEl) descEl.innerText = step.desc;
+  if (counterEl) counterEl.innerText = `Step ${index + 1} of ${steps.length}`;
+
+  // Previous button
+  if (btnPrev) {
+    if (index === 0) {
+      btnPrev.classList.add("rs-hidden");
+    } else {
+      btnPrev.classList.remove("rs-hidden");
+    }
+  }
+
+  // Next / Finish button
+  if (btnNext) {
+    if (index === steps.length - 1) {
+      btnNext.innerText = "Got It!";
+    } else {
+      btnNext.innerText = "Next";
+    }
+  }
+
+  // Render dots
+  renderTourDots(steps.length, index);
+
+  // Position card near target element with multiple layout checks to handle smooth-scroll & drawer expansion
+  requestAnimationFrame(() => {
+    if (targetEl) positionTourCard(targetEl);
+  });
+  setTimeout(() => {
+    if (targetEl) positionTourCard(targetEl);
+  }, 100);
+  setTimeout(() => {
+    if (targetEl) positionTourCard(targetEl);
+  }, 320);
+
+  posthogCapture("tour_step_viewed", {
+    tour_type: currentTourType,
+    step: index + 1,
+    title: step.title
+  });
+}
+
+function positionTourCard(targetEl) {
+  const card = document.getElementById("tour-card");
+  if (!card || !targetEl) return;
+
+  const rect = targetEl.getBoundingClientRect();
+  const cardRect = card.getBoundingClientRect();
+  const cardHeight = Math.max(cardRect.height, card.offsetHeight, 160);
+  const viewportHeight = window.innerHeight;
+  const gap = 10;
+  const edgePadding = 12;
+
+  let top;
+
+  const spaceBelow = viewportHeight - rect.bottom;
+  const spaceAbove = rect.top;
+
+  // Decide whether card fits better below or above target
+  if (spaceBelow >= cardHeight + gap + edgePadding) {
+    top = rect.bottom + gap;
+  } else if (spaceAbove >= cardHeight + gap + edgePadding) {
+    top = rect.top - cardHeight - gap;
+  } else {
+    // If screen is snug, place in whichever half has more space
+    top = spaceBelow >= spaceAbove ? (rect.bottom + gap) : (rect.top - cardHeight - gap);
+  }
+
+  // STRICT VIEWPORT CLAMP:
+  // Ensure the card never extends below the bottom edge or above the top edge of the extension window
+  const maxTop = Math.max(edgePadding, viewportHeight - cardHeight - edgePadding);
+  top = Math.min(top, maxTop);
+  top = Math.max(edgePadding, top);
+
+  card.style.top = `${Math.round(top)}px`;
+  card.style.bottom = "auto";
+}
+
+function renderTourDots(total, current) {
+  const container = document.getElementById("tour-dots");
+  if (!container) return;
+  container.innerHTML = "";
+  for (let i = 0; i < total; i++) {
+    const dot = document.createElement("span");
+    dot.className = "tour-dot" + (i === current ? " is-active" : "");
+    container.appendChild(dot);
+  }
+}
+
+function nextTourStep() {
+  const steps = currentTourType === "input" ? INPUT_TOUR_STEPS : RESULTS_TOUR_STEPS;
+  if (!steps) return;
+  if (currentTourStep >= steps.length - 1) {
+    completeTour();
+  } else {
+    renderTourStep(currentTourStep + 1);
+  }
+}
+
+function prevTourStep() {
+  if (currentTourStep > 0) {
+    renderTourStep(currentTourStep - 1);
+  }
+}
+
+function completeTour() {
+  const finishedType = currentTourType;
+  if (finishedType === "input") {
+    chrome.storage.local.set({ has_seen_input_tour: true });
+  } else if (finishedType === "results") {
+    chrome.storage.local.set({ has_seen_results_tour: true });
+  }
+  posthogCapture("tour_completed", { tour_type: finishedType });
+  closeTour();
+}
+
+function skipTour() {
+  const skippedType = currentTourType;
+  if (skippedType === "input") {
+    chrome.storage.local.set({ has_seen_input_tour: true });
+  } else if (skippedType === "results") {
+    chrome.storage.local.set({ has_seen_results_tour: true });
+  }
+  posthogCapture("tour_skipped", {
+    tour_type: skippedType,
+    at_step: currentTourStep + 1
+  });
+  closeTour();
+}
+
+function closeTour() {
+  document.querySelectorAll(".tour-highlight").forEach(el => el.classList.remove("tour-highlight"));
+  const backdrop = document.getElementById("tour-backdrop");
+  const card = document.getElementById("tour-card");
+  if (backdrop) backdrop.classList.add("rs-hidden");
+  if (card) card.classList.add("rs-hidden");
+  isTourActive = false;
+  currentTourType = null;
+  currentTourStep = 0;
 }

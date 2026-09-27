@@ -16,15 +16,6 @@
         <span class="brand-tag">TIET</span>
       </div>
       <div class="nav-actions">
-        <!-- Hybrid Model Selector: Gemini vs Ollama -->
-        <div class="model-toggle-group" id="model-toggle-group" role="radiogroup" aria-label="LLM Provider Toggle" title="Switch between Gemini and Ollama">
-          <button type="button" class="model-opt-btn active" id="btn-model-gemini" data-provider="gemini" aria-checked="true" role="radio" title="Google Gemini 3.5 Flash">
-            <span class="model-label">Gemini</span>
-          </button>
-          <button type="button" class="model-opt-btn" id="btn-model-ollama" data-provider="ollama" aria-checked="false" role="radio" title="Local Ollama Qwen 2.5 7B">
-            <span class="model-label">Ollama</span>
-          </button>
-        </div>
 
         <div class="status-indicator" id="status-container" title="System Status">
           <span class="status-dot" id="system-dot"></span>
@@ -69,6 +60,16 @@
               <button id="btn-clear-api-key" class="btn-micro">Clear Key</button>
             </div>
             <p class="settings-hint">Don't have a key? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Get one free from Google AI Studio</a></p>
+          </div>
+          <div class="settings-section" style="margin-top: 14px; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
+            <label class="settings-label">Guided Product Tours</label>
+            <p class="settings-hint">Want to see the step-by-step walkthrough of features again?</p>
+            <div class="settings-actions">
+              <button id="btn-restart-tour" class="btn-micro" style="padding: 6px 12px; font-weight: 500;">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+                Restart Onboarding Tour
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -285,7 +286,13 @@
             <span class="tag-fit" id="fit-badge">Good Fit</span>
             <span class="tag-provider-badge" id="hero-provider-badge">Gemini</span>
           </div>
-          <span class="tag-meta" id="sources-count">13 sources</span>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="tag-meta" id="sources-count">13 sources</span>
+            <button id="btn-reset-company" class="btn-micro" title="Clear report and analyze a new company">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 .49-3.5"></path></svg>
+              New Company
+            </button>
+          </div>
         </div>
         <p class="hero-verdict" id="verdict-summary"></p>
       </section>
@@ -310,7 +317,7 @@
       <!-- Navigation Tabs (Simple & Clear) -->
       <nav class="segmented-control" role="tablist">
         <button class="segment-btn is-active" data-tab="tab-compensation">Salary</button>
-        <button class="segment-btn" data-tab="tab-campus">Past Records</button>
+        <button class="segment-btn" data-tab="tab-campus">Last Year Hiring</button>
         <button class="segment-btn" data-tab="tab-prep">Prep Guide</button>
         <button class="segment-btn" data-tab="tab-culture">Culture</button>
         <button class="segment-btn" data-tab="tab-alumni">Alumni</button>
@@ -357,27 +364,11 @@
           </div>
         </div>
 
-        <!-- 2. Campus Placement History -->
+        <!-- 2. Last Year Hiring Statistics -->
         <div class="tab-pane" id="tab-campus">
-          <div class="pane-caption">Past Placement History at Thapar</div>
+          <div class="pane-caption">Last Year Hiring & Placement Statistics</div>
           <div id="campus-status-banner" class="status-callout"></div>
           <div id="campus-visits-container" class="item-stack"></div>
-          
-          <!-- Master DB Company Topic Breakdown -->
-          <div id="campus-topic-card" class="stack-card rs-mt-16" style="display:none; padding:12px 14px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-              <span class="pane-caption" style="margin:0; font-size:11px; text-transform:uppercase; letter-spacing:0.04em;">Most Frequently Asked Topics</span>
-              <span id="campus-topic-diff" class="question-diff diff-medium">Medium</span>
-            </div>
-            <div id="campus-topic-pills" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;"></div>
-            <div id="campus-topic-summary" style="font-size:11px; color:var(--text-muted); line-height:1.4;"></div>
-          </div>
-
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; margin-bottom:6px;">
-            <div class="pane-caption" style="margin:0;">Actual Questions Asked in Previous Drives</div>
-            <span id="campus-questions-count" style="font-size:10.5px; font-weight:600; color:var(--accent-blue);"></span>
-          </div>
-          <div id="campus-questions-list" class="item-stack"></div>
         </div>
 
         <!-- 3. Culture -->
@@ -571,6 +562,32 @@
         </div>
       </div>
     </main>
+  </div>
+
+  <!-- Interactive Onboarding Walkthrough Tour -->
+  <div id="tour-backdrop" class="tour-backdrop rs-hidden" aria-hidden="true"></div>
+  <div id="tour-card" class="tour-card rs-hidden" role="dialog" aria-modal="true" aria-labelledby="tour-step-title">
+    <div class="tour-card-header">
+      <div class="tour-badge" id="tour-badge">Quick Tour</div>
+      <button type="button" id="btn-tour-close" class="tour-btn-close" aria-label="Skip tour" title="Skip tour">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <div class="tour-card-body">
+      <h4 class="tour-step-title" id="tour-step-title">Welcome to Recruit Copilot</h4>
+      <p class="tour-step-desc" id="tour-step-desc">Step description...</p>
+    </div>
+    <div class="tour-card-footer">
+      <div class="tour-progress">
+        <span class="tour-counter" id="tour-counter">Step 1 of 5</span>
+        <div class="tour-dots" id="tour-dots"></div>
+      </div>
+      <div class="tour-actions">
+        <button type="button" id="btn-tour-skip" class="tour-btn-skip">Skip</button>
+        <button type="button" id="btn-tour-prev" class="tour-btn-nav tour-btn-prev">Back</button>
+        <button type="button" id="btn-tour-next" class="tour-btn-nav tour-btn-next">Next</button>
+      </div>
+    </div>
   </div>
 
   <script src="vendor/marked.min.js"></script>

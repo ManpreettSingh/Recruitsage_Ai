@@ -1,5 +1,6 @@
 import io
 import json
+from typing import Optional, Dict, Any, List
 import httpx
 import pypdf
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
@@ -19,7 +20,12 @@ from app.orchestrator import orchestrator
 from app.services.campus_service import campus_service
 from app.services.llm_router import llm_router
 from app.services.gemini_service import GeminiService
-from app.config import GEMINI_API_KEY, GEMINI_MODELS
+from app.services.cache_service import cache_service, compute_cache_keys, compute_autofill_cache_keys
+from app.services.rag_service import rag_service
+from app.services.rate_limiter import RateLimitMiddleware, get_client_ip
+from app.services.security_utils import validate_safe_url, safe_http_fetch
+from app.services.telemetry_service import telemetry
+from app.config import GEMINI_API_KEY, GEMINI_MODELS, ADMIN_SECRET_KEY
 
 def get_gemini_service(request: Request) -> GeminiService:
     """Returns a GeminiService using the user-supplied API key from the request header,
@@ -35,14 +41,26 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS for Chrome Extension and local testing
+# Enable CORS for Chrome Extension, production domain, and local testing
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://13.234.21.16.nip.io",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://recruit.thapar.edu",
+    ],
+    allow_origin_regex=r"^(chrome-extension://[a-z]{32}|https?://(localhost|127\.0\.0\.1|.*\.nip\.io)(:\d+)?)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "Retry-After"],
 )
+
+# Sliding window rate limiter middleware (protects quota and prevents scraping abuse)
+app.add_middleware(RateLimitMiddleware)
 
 @app.get("/")
 def read_root():
@@ -69,20 +87,48 @@ async def get_llm_status():
 
 @app.post("/api/extract-drive-context", response_model=DriveExtractionResponse)
 async def extract_drive_context(request: Request, body: DriveExtractionRequest):
+    client_id = request.headers.get("X-Client-Id", get_client_ip(request))
+    telemetry.capture_event(
+        distinct_id=client_id,
+        event="drive_notice_extracted",
+        properties={"has_url": bool(body.page_url), "provider": body.provider, "force_refresh": body.force_refresh}
+    )
     gemini_svc = get_gemini_service(request)
     raw_text = (body.raw_page_text or "").strip()
     if not raw_text and body.page_url and body.page_url.startswith("http"):
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-                res = await client.get(body.page_url)
-                if res.status_code == 200:
-                    raw_text = res.text
+            res = await safe_http_fetch(body.page_url, timeout=10.0, max_bytes=5 * 1024 * 1024)
+            if res.status_code == 200:
+                raw_text = res.text
+        except HTTPException:
+            raise
         except Exception as e:
             print(f"[API] Error scraping page URL: {e}")
 
     if not raw_text:
         raise HTTPException(status_code=400, detail="raw_page_text or a valid page_url is required")
+
+    # Check Autofill Cache by Job ID in URL, Canonical Page URL, or Text Hash
+    cache_keys = compute_autofill_cache_keys(body.page_url, raw_text)
+    if not body.force_refresh and cache_keys:
+        cached_data, matched_key = await cache_service.get(cache_keys)
+        if cached_data and isinstance(cached_data, dict):
+            cached_data["is_cached"] = True
+            cached_data["cache_key"] = matched_key
+            print(f"[AutofillCache] HIT for key '{matched_key}'")
+            telemetry.capture_event(
+                distinct_id=client_id,
+                event="autofill_cache_hit",
+                properties={"key": matched_key, "url": body.page_url}
+            )
+            return DriveExtractionResponse(**cached_data)
+
+    telemetry.capture_event(
+        distinct_id=client_id,
+        event="autofill_cache_miss",
+        properties={"url": body.page_url}
+    )
+
     parsed, actual_provider = await llm_router.extract_drive_context(raw_text, provider=body.provider, gemini_svc=gemini_svc)
     if isinstance(parsed, dict):
         parsed["company_name"] = parsed.get("company_name") or "Unknown Company"
@@ -90,6 +136,13 @@ async def extract_drive_context(request: Request, body: DriveExtractionRequest):
         parsed["ctc_text"] = parsed.get("ctc_text") or "Not Disclosed"
         parsed["additional_details"] = parsed.get("additional_details") or ""
         parsed["active_provider"] = actual_provider
+        parsed["is_cached"] = False
+        parsed["cache_key"] = cache_keys[0] if cache_keys else None
+
+        # Store in shared cache (TTL: 7 days)
+        if cache_keys:
+            await cache_service.set(cache_keys, parsed, ttl_seconds=86400 * 7)
+
     return DriveExtractionResponse(**parsed)
 
 @app.post("/api/extract-pdf")
@@ -156,55 +209,50 @@ async def extract_pdf_from_url(request: PdfUrlExtractRequest):
     clean_url = request.url.strip()
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
             "Accept": "application/pdf,*/*"
         }
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=headers) as client:
-            resp = await client.get(clean_url)
-            if resp.status_code != 200:
-                raise HTTPException(status_code=400, detail=f"Failed to fetch PDF from URL (HTTP {resp.status_code})")
-            
-            content = resp.content
-            if len(content) > 25 * 1024 * 1024:
-                raise HTTPException(status_code=400, detail="PDF exceeds 25 MB limit")
-            
-            reader = pypdf.PdfReader(io.BytesIO(content))
-            if reader.is_encrypted:
-                try:
-                    reader.decrypt("")
-                except Exception:
-                    raise HTTPException(status_code=400, detail="PDF is password protected.")
-            
-            pages_text = []
-            for i, page in enumerate(reader.pages):
-                txt = (page.extract_text() or "").strip()
-                if txt:
-                    pages_text.append(f"--- [Notice Page {i+1}] ---\n{txt}")
-            
-            full_text = "\n\n".join(pages_text).strip()
-            if not full_text:
-                raise HTTPException(status_code=400, detail="No readable text found in PDF (may be scanned image).")
-            
-            parsed_fields = {}
-            if request.auto_parse:
-                try:
-                    parsed_fields, _ = await llm_router.extract_drive_context(full_text[:12000], provider="gemini")
-                except Exception as e:
-                    print(f"[API] Error running LLM extraction on PDF URL: {e}")
-            
-            filename = clean_url.split("/")[-1].split("?")[0] or "notice_document.pdf"
-            if not filename.lower().endswith(".pdf"):
-                filename += ".pdf"
-            
-            return {
-                "filename": filename,
-                "num_pages": len(reader.pages),
-                "word_count": len(full_text.split()),
-                "character_count": len(full_text),
-                "extracted_text": full_text[:12000],
-                "parsed_fields": parsed_fields,
-                "source_url": clean_url
-            }
+        resp = await safe_http_fetch(clean_url, timeout=30.0, max_bytes=25 * 1024 * 1024, headers=headers)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Failed to fetch PDF from URL (HTTP {resp.status_code})")
+        
+        content = resp.content
+        reader = pypdf.PdfReader(io.BytesIO(content))
+        if reader.is_encrypted:
+            try:
+                reader.decrypt("")
+            except Exception:
+                raise HTTPException(status_code=400, detail="PDF is password protected.")
+        
+        pages_text = []
+        for i, page in enumerate(reader.pages):
+            txt = (page.extract_text() or "").strip()
+            if txt:
+                pages_text.append(f"--- [Notice Page {i+1}] ---\n{txt}")
+        
+        full_text = "\n\n".join(pages_text).strip()
+        if not full_text:
+            raise HTTPException(status_code=400, detail="No readable text found in PDF (may be scanned image).")
+        
+        parsed_fields = {}
+        if request.auto_parse:
+            try:
+                parsed_fields, _ = await llm_router.extract_drive_context(full_text[:12000], provider="gemini")
+            except Exception as e:
+                print(f"[API] Error running LLM extraction on PDF URL: {e}")
+        
+        filename = clean_url.split("/")[-1].split("?")[0] or "notice_document.pdf"
+        if not filename.lower().endswith(".pdf"):
+            filename += ".pdf"
+        
+        return {
+            "filename": filename,
+            "num_pages": len(reader.pages),
+            "word_count": len(full_text.split()),
+            "character_count": len(full_text),
+            "extracted_text": full_text[:12000],
+            "parsed_fields": parsed_fields,
+            "source_url": clean_url
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -214,18 +262,110 @@ async def extract_pdf_from_url(request: PdfUrlExtractRequest):
 async def analyze_company(request: Request, body: CompanyAnalysisRequest):
     if not body.company_name or not body.company_name.strip():
         raise HTTPException(status_code=400, detail="company_name is required")
+    
+    # 1. Compute hierarchical cache keys (URL/Job UUID key first, then company:role key)
+    cache_keys = compute_cache_keys(
+        company_name=body.company_name,
+        role=body.role or "Software Engineer",
+        page_url=body.page_url
+    )
+    primary_key = cache_keys[0]
+
+    client_id = request.headers.get("X-Client-Id", get_client_ip(request))
+
+    # 2. Check Cache
+    cached_data, hit_key = await cache_service.get(cache_keys)
+    if cached_data:
+        print(f"[API] ⚡ Served dossier from cache for '{body.company_name}' ({hit_key})")
+        telemetry.capture_event(
+            distinct_id=client_id,
+            event="company_analysis_cache_hit",
+            properties={"company": body.company_name, "role": body.role, "cache_key": hit_key}
+        )
+        cached_data["is_cached"] = True
+        cached_data["cache_key"] = hit_key
+        return DossierResponse(**cached_data)
+
+    # 3. In-flight Deduplication (Thundering Herd Protection)
+    # If 50 students analyze the same drive simultaneously, compute once!
+    is_leader = await cache_service.acquire_dedup_lock(primary_key)
+    if not is_leader:
+        print(f"[API] Concurrent request detected for '{primary_key}' - waiting on in-flight leader...")
+        waited = await cache_service.wait_for_in_flight(primary_key, timeout=45.0)
+        if waited:
+            cached_data, hit_key = await cache_service.get(cache_keys)
+            if cached_data:
+                print(f"[API] ⚡ Follower received cached result for '{primary_key}' ({hit_key})")
+                cached_data["is_cached"] = True
+                cached_data["cache_key"] = hit_key
+                return DossierResponse(**cached_data)
+
     gemini_svc = get_gemini_service(request)
     try:
+        telemetry.capture_event(
+            distinct_id=client_id,
+            event="company_analysis_started",
+            properties={"company": body.company_name, "role": body.role, "provider": body.provider}
+        )
         dossier = await orchestrator.execute_task_graph(body, gemini_svc=gemini_svc)
+        telemetry.capture_event(
+            distinct_id=client_id,
+            event="company_analysis_success",
+            properties={"company": body.company_name, "role": body.role, "hiring_verdict": getattr(dossier, "hiring_verdict", "")}
+        )
+        
+        # Serialize for cache storage
+        dossier_dict = dossier.model_dump() if hasattr(dossier, "model_dump") else dossier.dict()
+        dossier_dict["is_cached"] = True
+        dossier_dict["cache_key"] = primary_key
+        
+        # Cache under all associated keys (job URL and company:role)
+        await cache_service.set(cache_keys, dossier_dict)
+        
+        # Return response to client marked as fresh
+        dossier.is_cached = False
+        dossier.cache_key = primary_key
         return dossier
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[API] Error analyzing company: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error occurred during company analysis. Please try again.")
+    finally:
+        if is_leader:
+            await cache_service.release_dedup_lock(primary_key)
+
+@app.get("/api/cache/stats")
+async def get_cache_stats():
+    """Returns current cache status, hit/miss metrics, and active store type."""
+    return cache_service.get_stats()
+
+@app.post("/api/cache/clear")
+async def clear_cache(request: Request):
+    """Flushes cache store and resets statistics. Requires admin authorization."""
+    admin_key = request.headers.get("X-Admin-Key", "").strip()
+    client_ip = get_client_ip(request)
+    is_localhost = client_ip in ("127.0.0.1", "::1", "localhost")
+    
+    if admin_key != ADMIN_SECRET_KEY and not is_localhost:
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Administrative privileges or valid X-Admin-Key header required."
+        )
+    await cache_service.clear_all()
+    return {"status": "success", "message": "Cache successfully cleared"}
 
 @app.post("/api/chat")
 async def chat_doubt_solver(request: Request, body: ChatQueryRequest):
     if not body.company_name:
         raise HTTPException(status_code=400, detail="company_name is required")
+
+    client_id = request.headers.get("X-Client-Id", get_client_ip(request))
+    telemetry.capture_event(
+        distinct_id=client_id,
+        event="chat_doubt_asked",
+        properties={"company": body.company_name, "messages_count": len(body.messages)}
+    )
 
     gemini_svc = get_gemini_service(request)
     messages = [{"role": m.role, "content": m.content} for m in body.messages]
@@ -258,6 +398,19 @@ async def chat_doubt_solver(request: Request, body: ChatQueryRequest):
             context["prep_guide"]["other_campus_questions"] = enriched_other
             context["campus_intel"]["other_campus_questions"] = enriched_other
 
+    # Ground chat response with relevant RAG behavioral advice, verified questions, and debriefs
+    user_query = messages[-1]["content"] if messages else ""
+    try:
+        rag_grounding = rag_service.build_grounded_rag_context(
+            company_name=body.company_name,
+            user_query=user_query,
+            role=target_role
+        )
+        if rag_grounding:
+            context["rag_grounding"] = rag_grounding
+    except Exception as e:
+        print(f"[API] Note: RAG context grounding skipped: {e}")
+
     async def event_generator():
         async for chunk in llm_router.stream_chat(
             company_name=body.company_name,
@@ -270,6 +423,20 @@ async def chat_doubt_solver(request: Request, body: ChatQueryRequest):
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+@app.get("/api/rag/stats")
+async def get_rag_stats():
+    """Returns RAG collection counts and active vector engine status."""
+    return rag_service.get_stats()
+
+@app.post("/api/rag/search")
+async def search_rag(query: str, company: Optional[str] = None, role: Optional[str] = None):
+    """Direct semantic query against the RAG knowledge base collections."""
+    return {
+        "behavioral": rag_service.search_behavioral(query, top_k=3),
+        "questions": rag_service.search_questions(query, company=company, role=role, top_k=5),
+        "interview_experiences": rag_service.search_interview_experiences(company, query, top_k=3)
+    }
 
 @app.post("/api/evaluate-mermaid", response_model=MermaidEvaluationResponse)
 async def evaluate_mermaid(request: MermaidEvaluationRequest):

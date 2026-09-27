@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Recruit Copilot - Placement Intelligence Copilot",
+  "name": "Recruit Copilot - Placement Intelligence",
   "version": "1.2.0",
-  "description": "Agentic Placement Copilot for Thapar Institute (TIET). Automated web research, red-flag auditing, campus question bank matching, and doubt-solving.",
+  "description": "Placement intelligence copilot for college students. Company research, red-flag auditing, past interview questions, and prep.",
   "permissions": [
     "sidePanel",
     "activeTab",
@@ -12,8 +12,8 @@
   "host_permissions": [
     "https://recruit.thapar.edu/*",
     "https://*.thapar.edu/*",
-    "http://localhost:8000/*",
-    "<all_urls>"
+    "https://*.nip.io/*",
+    "https://us.i.posthog.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -38,7 +38,10 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://recruit.thapar.edu/*"],
+      "matches": [
+        "https://recruit.thapar.edu/*",
+        "https://*.thapar.edu/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
@@ -46,7 +49,10 @@
   "web_accessible_resources": [
     {
       "resources": ["icons/*"],
-      "matches": ["https://recruit.thapar.edu/*", "https://*.thapar.edu/*", "<all_urls>"]
+      "matches": [
+        "https://recruit.thapar.edu/*",
+        "https://*.thapar.edu/*"
+      ]
     }
   ]
 }

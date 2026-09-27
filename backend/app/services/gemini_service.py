@@ -2,6 +2,7 @@ import json
 import httpx
 from typing import Dict, Any, List, AsyncGenerator, Optional
 from app.config import GEMINI_API_KEY, GEMINI_MODELS
+from app.services.telemetry_service import telemetry
 
 class GeminiService:
     def __init__(self, api_key: str = GEMINI_API_KEY, models: List[str] = None):
@@ -14,8 +15,9 @@ class GeminiService:
         if not self.api_key:
             return {"status": "unconfigured", "error": "GEMINI_API_KEY not set"}
         try:
+            headers = {"x-goog-api-key": self.api_key}
             async with httpx.AsyncClient(timeout=4.0) as client:
-                res = await client.get(f"{self.base_url}/models?key={self.api_key}")
+                res = await client.get(f"{self.base_url}/models", headers=headers)
                 if res.status_code == 200:
                     return {
                         "status": "online",
@@ -30,7 +32,8 @@ class GeminiService:
     async def _generate(self, prompt: str, system_instruction: str = None, json_mode: bool = False, timeout: float = 30.0) -> Optional[str]:
         """Tries configured Gemini models sequentially with automatic failover."""
         for model in self.models:
-            url = f"{self.base_url}/models/{model}:generateContent?key={self.api_key}"
+            url = f"{self.base_url}/models/{model}:generateContent"
+            headers = {"x-goog-api-key": self.api_key}
             payload = {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {
@@ -44,14 +47,27 @@ class GeminiService:
 
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:
-                    res = await client.post(url, json=payload)
+                    res = await client.post(url, json=payload, headers=headers)
                     if res.status_code == 200:
                         data = res.json()
                         candidates = data.get("candidates", [])
                         if candidates:
                             parts = candidates[0].get("content", {}).get("parts", [])
                             if parts:
-                                return parts[0].get("text", "")
+                                out_text = parts[0].get("text", "")
+                                usage = data.get("usageMetadata", {})
+                                telemetry.log_generation(
+                                    name="gemini_generate",
+                                    model=model,
+                                    input_data=prompt[:1500],
+                                    output_data=out_text[:1500],
+                                    usage={
+                                        "prompt_tokens": usage.get("promptTokenCount", 0),
+                                        "completion_tokens": usage.get("candidatesTokenCount", 0),
+                                        "total_tokens": usage.get("totalTokenCount", 0)
+                                    }
+                                )
+                                return out_text
                     else:
                         print(f"[GeminiService] Model {model} returned HTTP {res.status_code}: {res.text[:120]}")
             except Exception as e:
@@ -189,8 +205,8 @@ Job Description Excerpt:
    - If company headcount is < 10-50 employees or unverified, flag as RED FLAG: risk of zero senior technical mentorship, lack of code reviews, and unguided production responsibilities.
 3. Newly Founded / Early-Stage Startup Runway Risk:
    - Founded recently (last 1-3 years) with no proven campus hiring track record or stable funding. High risk of rescinded offers or payroll default.
-4. Mandatory Unpaid / Sub-Minimum Wage Internship & PPO Baiting:
-   - Demanding 6+ months of unpaid/low-stipend training with vague "performance-based PPO" promises (treating graduates as cheap disposable labor).
+4. Extremely Low Intern-to-PPO Conversion Rate (< 10-20%) & Internship PPO Traps:
+   - Track record of hiring large cohorts of 6-month interns (50-100+ students) but converting only a tiny fraction (e.g. 5-10% PPO conversion rate, as notoriously reported at companies like Razorpay) to full-time roles, using students as cheap seasonal labor. If reviews, Grapevine threads, or forum discussions report low PPO conversion, rescinded PPOs, or cutoffs where only a handful receive FTE offers, ALWAYS flag this as a HIGH or MEDIUM severity RED FLAG with explicit advice to keep other job offers open!
 5. Document / Marksheet Withholding (Certificate Seizure):
    - Demanding original educational marksheets, degrees, or passports upon joining (strictly illegal under AICTE/MHRD guidelines).
 6. Predatory Service Bonds & Monetary Penalties:
@@ -225,7 +241,8 @@ CRITICAL INSTRUCTION FOR EARLY-STAGE / SCALE RED FLAGS:
 1. NEVER HALLUCINATE OR GUESS UNVERIFIED FACTS: If bond penalty details, specific stipend numbers, or CTC breakdowns are not in the placement notice or verified data, report 'None stated in drive notice (verify offer letter)'. NEVER invent arbitrary penalty amounts or fake clauses.
 2. If compensation components (fixed base vs bonus) are not separated, output 'Base pay not itemized in drive notice' rather than guessing.
 3. Ground all pros, cons, and questions directly on the provided campus data, review snippets, and interview snippets.
-4. Vague generic prep advice like "practice DSA, revise core CS" is STRICTLY FORBIDDEN. Provide concrete, company-focused problem archetypes with real problem titles (e.g. from LeetCode or GeeksforGeeks) and role-relevant concepts.
+4. Vague generic prep advice like "practice DSA, revise core CS" is STRICTLY FORBIDDEN. Provide concrete, company-focused problem archetypes with real problem titles and role-relevant concepts.
+5. NEVER INVENT FAKE COLLEGE CAMPUS DRIVES: Do NOT fabricate "DTU Campus Drive", "NIT Trichy", or other college names under interview questions. All web_researched_questions MUST cite the actual web source (AmbitionBox, Glassdoor, LeetCode, GeeksforGeeks) or be labeled as "Role Technical Assessment" tailored to the specific tools and responsibilities in the Job Description.
 
 OUTPUT STRICT JSON FORMAT:
 {{
@@ -280,11 +297,11 @@ OUTPUT STRICT JSON FORMAT:
     ],
     "coding_archetypes": [
       {{
-        "pattern_name": "Specific Pattern Name (e.g. Two Pointers & Sliding Window / LRU Cache / Graph Topological Sort)",
-        "frequency_rate": "Asked in ~60% of technical interviews for this company",
+        "pattern_name": "Specific Pattern Name (e.g. Two Pointers & Sliding Window / LRU Cache / Graph BFS/DFS)",
+        "frequency_rate": "Asked in ~60% of technical interviews for this company/role",
         "example_problems": [
-          "Exact LeetCode/GFG problem name (e.g. LeetCode 42: Trapping Rain Water)",
-          "Exact LeetCode/GFG problem name (e.g. Subarray Sum Equals K)"
+          "Specific problem name tailored to this company and role tech stack",
+          "Secondary high-yield problem name"
         ],
         "complexity_target": "O(N) time with O(1) space",
         "dry_run_tips": "Specific coding strategy or common boundary edge case for this archetype"
@@ -296,9 +313,9 @@ OUTPUT STRICT JSON FORMAT:
         "importance_weight": "35% of Tech Rounds",
         "high_yield_topics": ["Specific concept 1", "Specific concept 2", "Specific concept 3"],
         "company_focus_questions": [
-          "Actual technical question 1 asked by this employer",
-          "Actual technical question 2 asked by this employer",
-          "Actual technical question 3 asked by this employer"
+          "Actual technical question 1 asked by this employer or tailored to role",
+          "Actual technical question 2 asked by this employer or tailored to role",
+          "Actual technical question 3 asked by this employer or tailored to role"
         ]
       }}
     ],
@@ -313,25 +330,14 @@ OUTPUT STRICT JSON FORMAT:
     ],
     "web_researched_questions": [
       {{
-        "source_name": "GeeksforGeeks / LeetCode Discuss / Glassdoor Interview Experience",
-        "source_url": "URL from the interview snippets above if available",
-        "round_type": "Online Assessment (OA) or Technical Round 1",
-        "question_title": "Concrete coding problem or question reported in web interview experiences for this company",
-        "topic": "DSA / DBMS / OS / System Design",
+        "source_name": "AmbitionBox / Glassdoor / GeeksforGeeks / Role Technical Assessment",
+        "source_url": "URL from the interview snippets above if available, else empty",
+        "round_type": "Online Assessment (OA) / Technical Round 1 / Technical Round 2",
+        "question_title": "Concrete coding problem, technical question, or system design problem asked by this company or tailored to the JD tech stack",
+        "topic": "Domain (DSA / System Design / OS / DBMS / Frontend / Backend)",
         "exact_topic": "Specific subtopic",
         "difficulty": "Easy" | "Medium" | "Hard",
         "notes": "Optimal solution approach, dry-run tip, or interviewer expectation"
-      }}
-    ],
-    "other_campus_questions": [
-      {{
-        "source_drive": "DTU / IIT / NIT / BITS Campus Drive",
-        "round_type": "Technical Round 1 or Online Assessment",
-        "question_title": "Concrete question asked at top engineering colleges for this company",
-        "topic": "DSA / DBMS / OS / System Design",
-        "exact_topic": "Specific subtopic",
-        "difficulty": "Medium" | "Hard",
-        "notes": "Optimal solution approach or complexity expectation"
       }}
     ]
   }}
@@ -667,6 +673,8 @@ Key Cons: {', '.join(culture_info.get('key_cons', [])) or 'Variable team culture
 
 [AUDITED RED FLAGS & ADVICE]
 {flags_str}
+
+{f"[RAG RETRIEVED PLAYBOOK & CAMPUS INTEL]" + chr(10) + str(context.get("rag_grounding", "")) if context.get("rag_grounding") else ""}
 """
 
         system_instruction = (
@@ -712,7 +720,8 @@ Key Cons: {', '.join(culture_info.get('key_cons', [])) or 'Variable team culture
 
         # Try models with streaming
         for model in self.models:
-            url = f"{self.base_url}/models/{model}:streamGenerateContent?alt=sse&key={self.api_key}"
+            url = f"{self.base_url}/models/{model}:streamGenerateContent?alt=sse"
+            headers = {"x-goog-api-key": self.api_key}
             payload = {
                 "contents": gemini_contents,
                 "systemInstruction": {"parts": [{"text": system_instruction}]},
@@ -722,7 +731,7 @@ Key Cons: {', '.join(culture_info.get('key_cons', [])) or 'Variable team culture
             try:
                 stream_success = False
                 async with httpx.AsyncClient(timeout=60.0) as client:
-                    async with client.stream("POST", url, json=payload) as response:
+                    async with client.stream("POST", url, json=payload, headers=headers) as response:
                         if response.status_code == 200:
                             async for line in response.aiter_lines():
                                 if line.startswith("data:"):

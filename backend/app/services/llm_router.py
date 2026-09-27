@@ -4,20 +4,19 @@ from app.config import DEFAULT_LLM_PROVIDER
 from app.services.gemini_service import gemini_service
 from app.services.ollama_service import ollama_service
 
+
 class LLMRouter:
     """
-    Intelligent Hybrid LLM Router.
-    Routes inference requests dynamically between Google Gemini API and local Ollama (Qwen 2.5 7B),
-    with seamless automatic mutual fallback if the requested provider is unreachable or rate-limited.
+    LLM Router — routes requests to either Gemini or Ollama based on the user's
+    explicit provider selection. No automatic fallback — if the chosen provider
+    fails, a clear error is returned to the frontend.
     """
 
     def __init__(self):
         self.default_provider = DEFAULT_LLM_PROVIDER or "gemini"
 
     async def get_status(self) -> Dict[str, Any]:
-        """
-        Queries status and availability of both Gemini and Ollama concurrently.
-        """
+        """Checks availability of both Gemini and Ollama concurrently."""
         gemini_task = gemini_service.check_health()
         ollama_task = ollama_service.check_health()
 
@@ -44,36 +43,30 @@ class LLMRouter:
             return "ollama"
         return "gemini"
 
+    def _get_service(self, chosen: str, gemini_svc=None):
+        """Returns the service instance for the chosen provider."""
+        if chosen == "ollama":
+            return ollama_service
+        return gemini_svc or gemini_service
+
     async def extract_drive_context(self, raw_page_text: str, provider: Optional[str] = None, gemini_svc=None) -> Tuple[Dict[str, Any], str]:
         """
         Extracts structured fields from raw placement notice text.
-        Returns (parsed_dict, actual_provider_used).
+        Returns (parsed_dict, provider_used). Raises ValueError if the provider is not configured.
         """
         chosen = self._resolve_provider(provider)
-        primary = (gemini_svc or gemini_service) if chosen == "gemini" else ollama_service
-        secondary = ollama_service if chosen == "gemini" else (gemini_svc or gemini_service)
-        primary_name = chosen
-        secondary_name = "ollama" if chosen == "gemini" else "gemini"
+        service = self._get_service(chosen, gemini_svc)
+
+        if chosen == "gemini" and not getattr(service, "api_key", None):
+            raise ValueError("Gemini API key is not set. Please add your key in Settings.")
 
         try:
-            res = await primary.extract_drive_context(raw_page_text)
-            if res and res.get("company_name"):
-                return res, primary_name
+            res = await service.extract_drive_context(raw_page_text)
+            return res or {}, chosen
+        except ValueError:
+            raise
         except Exception as e:
-            print(f"[LLMRouter] Primary {primary_name} failed extract_drive_context: {e}. Trying fallback {secondary_name}...")
-
-        # Fallback
-        try:
-            res = await secondary.extract_drive_context(raw_page_text)
-            if res and res.get("company_name"):
-                return res, secondary_name
-            elif res:
-                return res, secondary_name
-        except Exception as e:
-            print(f"[LLMRouter] Secondary {secondary_name} failed extract_drive_context: {e}")
-
-        # Return whatever primary returned if fallback also failed
-        return res or {}, primary_name
+            raise RuntimeError(f"{chosen.capitalize()} failed to extract drive context: {str(e)}")
 
     async def synthesize_dossier(self, company_name: str, role: str, ctc_text: str, jd_text: str,
                                  campus_intel: Dict[str, Any], reddit_snippets: List[Dict[str, str]],
@@ -86,18 +79,18 @@ class LLMRouter:
                                  provider: Optional[str] = None,
                                  gemini_svc=None) -> Tuple[Dict[str, Any], str]:
         """
-        Executes synthesis agent with automatic failover between Gemini and Ollama.
-        Returns (dossier_dict, actual_provider_used).
+        Runs the synthesis agent on the chosen provider only.
+        Raises an error if the provider is unavailable or not configured.
         """
         chosen = self._resolve_provider(provider)
-        primary = (gemini_svc or gemini_service) if chosen == "gemini" else ollama_service
-        secondary = ollama_service if chosen == "gemini" else (gemini_svc or gemini_service)
-        primary_name = chosen
-        secondary_name = "ollama" if chosen == "gemini" else "gemini"
+        service = self._get_service(chosen, gemini_svc)
 
+        if chosen == "gemini" and not getattr(service, "api_key", None):
+            raise ValueError("Gemini API key is not set. Please add your key in Settings.")
+
+        print(f"[LLMRouter] Invoking '{chosen}' for dossier synthesis...")
         try:
-            print(f"[LLMRouter] Invoking primary provider '{primary_name}' for dossier synthesis...")
-            res = await primary.synthesize_dossier(
+            res = await service.synthesize_dossier(
                 company_name=company_name, role=role, ctc_text=ctc_text, jd_text=jd_text,
                 campus_intel=campus_intel, reddit_snippets=reddit_snippets,
                 review_snippets=review_snippets, red_flag_snippets=red_flag_snippets,
@@ -105,30 +98,11 @@ class LLMRouter:
                 location=location, probation_note=probation_note,
                 eligibility_text=eligibility_text, skills=skills, additional_context=additional_context
             )
-            if res and isinstance(res, dict) and "compensation" in res:
-                return res, primary_name
-            else:
-                print(f"[LLMRouter] Primary '{primary_name}' returned incomplete dossier. Failing over to '{secondary_name}'...")
+            return res or {}, chosen
+        except ValueError:
+            raise
         except Exception as e:
-            print(f"[LLMRouter] Error on primary '{primary_name}': {e}. Failing over to '{secondary_name}'...")
-
-        # Fallback to secondary
-        try:
-            print(f"[LLMRouter] Invoking fallback provider '{secondary_name}' for dossier synthesis...")
-            res_sec = await secondary.synthesize_dossier(
-                company_name=company_name, role=role, ctc_text=ctc_text, jd_text=jd_text,
-                campus_intel=campus_intel, reddit_snippets=reddit_snippets,
-                review_snippets=review_snippets, red_flag_snippets=red_flag_snippets,
-                alumni_links=alumni_links, interview_snippets=interview_snippets,
-                location=location, probation_note=probation_note,
-                eligibility_text=eligibility_text, skills=skills, additional_context=additional_context
-            )
-            if res_sec and isinstance(res_sec, dict):
-                return res_sec, secondary_name
-        except Exception as e:
-            print(f"[LLMRouter] Secondary '{secondary_name}' also failed: {e}")
-
-        return res or {}, primary_name
+            raise RuntimeError(f"{chosen.capitalize()} failed during synthesis: {str(e)}")
 
     async def evaluate_dossier(self, dossier_data: Dict[str, Any], company_name: str, role: str,
                                jd_text: str, campus_intel: Dict[str, Any],
@@ -137,96 +111,67 @@ class LLMRouter:
                                provider: Optional[str] = None,
                                gemini_svc=None) -> Tuple[Dict[str, Any], str]:
         """
-        Executes QA audit evaluator with automatic failover between Gemini and Ollama.
+        Runs the QA audit evaluator on the chosen provider only.
+        Returns empty dict (non-fatal) if evaluation fails, since it is a secondary step.
         """
         chosen = self._resolve_provider(provider)
-        primary = (gemini_svc or gemini_service) if chosen == "gemini" else ollama_service
-        secondary = ollama_service if chosen == "gemini" else (gemini_svc or gemini_service)
-        primary_name = chosen
-        secondary_name = "ollama" if chosen == "gemini" else "gemini"
+        service = self._get_service(chosen, gemini_svc)
+
+        if chosen == "gemini" and not getattr(service, "api_key", None):
+            print(f"[LLMRouter] Skipping evaluation — Gemini key not set.")
+            return {}, chosen
 
         try:
-            res = await primary.evaluate_dossier(
+            res = await service.evaluate_dossier(
                 dossier_data=dossier_data, company_name=company_name, role=role,
                 jd_text=jd_text, campus_intel=campus_intel,
                 review_snippets=review_snippets, red_flag_snippets=red_flag_snippets
             )
-            if res and isinstance(res, dict) and "overall_score" in res:
-                return res, primary_name
+            return res or {}, chosen
         except Exception as e:
-            print(f"[LLMRouter] Primary '{primary_name}' evaluate_dossier failed: {e}. Trying fallback...")
-
-        try:
-            res = await secondary.evaluate_dossier(
-                dossier_data=dossier_data, company_name=company_name, role=role,
-                jd_text=jd_text, campus_intel=campus_intel,
-                review_snippets=review_snippets, red_flag_snippets=red_flag_snippets
-            )
-            if res and isinstance(res, dict):
-                return res, secondary_name
-        except Exception as e:
-            print(f"[LLMRouter] Secondary '{secondary_name}' evaluate_dossier failed: {e}")
-
-        return {}, primary_name
+            print(f"[LLMRouter] Evaluation step failed on '{chosen}': {e}. Skipping (non-fatal).")
+            return {}, chosen
 
     async def stream_chat(self, company_name: str, context: Dict[str, Any],
                           messages: List[Dict[str, str]],
                           provider: Optional[str] = None,
                           gemini_svc=None) -> AsyncGenerator[str, None]:
         """
-        Streams chat responses from the chosen provider, falling back seamlessly if initial token fails.
+        Streams chat from the chosen provider only.
+        Yields a clear error message if the provider is not configured or fails.
         """
         chosen = self._resolve_provider(provider)
-        primary = (gemini_svc or gemini_service) if chosen == "gemini" else ollama_service
-        secondary = ollama_service if chosen == "gemini" else (gemini_svc or gemini_service)
-        primary_name = chosen
-        secondary_name = "ollama" if chosen == "gemini" else "gemini"
+        service = self._get_service(chosen, gemini_svc)
 
-        received_token = False
+        if chosen == "gemini" and not getattr(service, "api_key", None):
+            yield "Error: Gemini API key is not set. Please open Settings (gear icon) and add your Gemini API key to continue."
+            return
+
         try:
-            async for chunk in primary.stream_chat(company_name, context, messages):
-                # Check for explicit service unavailable messages from primary
-                if "temporarily unavailable" in chunk and not received_token:
-                    print(f"[LLMRouter] Primary {primary_name} reported unavailable. Switching to {secondary_name}...")
-                    break
-                received_token = True
+            async for chunk in service.stream_chat(company_name, context, messages):
                 yield chunk
         except Exception as e:
-            print(f"[LLMRouter] Primary {primary_name} stream_chat raised: {e}")
+            yield f"Error: {chosen.capitalize()} is unavailable. {str(e)}"
 
-        # If primary failed to yield any valid content, stream from secondary
-        if not received_token:
-            print(f"[LLMRouter] Attempting chat stream with fallback provider '{secondary_name}'...")
-            try:
-                async for chunk in secondary.stream_chat(company_name, context, messages):
-                    yield chunk
-            except Exception as e:
-                yield f"\n[RecruitSage Chat Error: Both {primary_name} and {secondary_name} providers are currently unavailable. {str(e)}]"
-    async def evaluate_and_fix_mermaid(self, mermaid_code: str, error_context: str = "", provider: Optional[str] = None) -> Tuple[str, str]:
+    async def evaluate_and_fix_mermaid(self, mermaid_code: str, error_context: str = "", provider: Optional[str] = None, gemini_svc=None) -> Tuple[str, str]:
         """
-        Routes Mermaid syntax evaluation to LLM judge (Gemini or Ollama) with fallback.
-        Returns (corrected_code, used_provider).
+        Routes Mermaid syntax evaluation to the chosen provider only.
+        Falls back to deterministic sanitizer if LLM fails (UI-only, non-critical).
         """
         chosen = self._resolve_provider(provider)
-        primary = gemini_service if chosen == "gemini" else ollama_service
-        secondary = ollama_service if chosen == "gemini" else gemini_service
-        primary_name = chosen
-        secondary_name = "ollama" if chosen == "gemini" else "gemini"
+        service = self._get_service(chosen, gemini_svc)
+
+        if chosen == "gemini" and not getattr(service, "api_key", None):
+            return gemini_service._sanitize_mermaid(mermaid_code), "deterministic_compiler"
 
         try:
-            fixed = await primary.evaluate_and_fix_mermaid(mermaid_code, error_context)
+            fixed = await service.evaluate_and_fix_mermaid(mermaid_code, error_context)
             if fixed and ("graph " in fixed or "flowchart " in fixed):
-                return fixed, primary_name
+                return fixed, chosen
         except Exception as e:
-            print(f"[LLMRouter] Primary {primary_name} evaluate_and_fix_mermaid error: {e}")
-
-        try:
-            fixed = await secondary.evaluate_and_fix_mermaid(mermaid_code, error_context)
-            if fixed and ("graph " in fixed or "flowchart " in fixed):
-                return fixed, secondary_name
-        except Exception as e:
-            print(f"[LLMRouter] Secondary {secondary_name} evaluate_and_fix_mermaid error: {e}")
+            print(f"[LLMRouter] evaluate_and_fix_mermaid failed on '{chosen}': {e}")
 
         return gemini_service._sanitize_mermaid(mermaid_code), "deterministic_compiler"
+
 
 llm_router = LLMRouter()

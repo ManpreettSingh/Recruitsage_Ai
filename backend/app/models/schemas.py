@@ -2,9 +2,10 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
 class DriveExtractionRequest(BaseModel):
-    raw_page_text: str
+    raw_page_text: Optional[str] = ""
     page_url: Optional[str] = ""
     provider: Optional[str] = "gemini"
+    force_refresh: Optional[bool] = False
 
 class DriveExtractionResponse(BaseModel):
     company_name: Optional[str] = "Unknown Company"
@@ -19,6 +20,8 @@ class DriveExtractionResponse(BaseModel):
     clean_jd_summary: Optional[str] = ""
     additional_details: Optional[str] = ""
     active_provider: Optional[str] = "gemini"
+    is_cached: Optional[bool] = False
+    cache_key: Optional[str] = None
 
 class PdfUrlExtractRequest(BaseModel):
     url: str
@@ -88,6 +91,7 @@ class CompanyAnalysisRequest(BaseModel):
     raw_page_text: Optional[str] = ""
     additional_context: Optional[str] = ""
     provider: Optional[str] = "gemini"
+    page_url: Optional[str] = ""  # Used as cache key when available
 
 class RedFlagItem(BaseModel):
     category: str
@@ -222,6 +226,8 @@ class DossierResponse(BaseModel):
     raw_sources_count: int = 0
     evaluation: Optional[EvaluationReport] = None
     active_provider: Optional[str] = "gemini"
+    is_cached: Optional[bool] = False
+    cache_key: Optional[str] = None
 
 class ChatMessage(BaseModel):
     role: str # "user" or "assistant"

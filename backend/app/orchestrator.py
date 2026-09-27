@@ -13,6 +13,7 @@ from app.services.campus_service import campus_service
 from app.services.search_service import search_service
 from app.services.alumni_service import alumni_service
 from app.services.llm_router import llm_router
+from app.services.rag_service import rag_service
 
 class ResearchOrchestrator:
     def __init__(self):
@@ -64,6 +65,16 @@ class ResearchOrchestrator:
 
         total_sources = len(reddit_results) + len(review_results) + len(red_flag_results) + len(interview_results)
         print(f"[Orchestrator] Worker data gathered in {time.time() - start_time:.2f}s ({total_sources} search & interview findings)")
+
+        # Index live findings into RAG collection for subsequent student doubt solving & chat
+        try:
+            rag_service.index_interview_experience(
+                company=req.company_name,
+                role=req.role or "Software Engineer",
+                snippets=review_results + interview_results + reddit_results
+            )
+        except Exception as e:
+            print(f"[Orchestrator] Note: RAG experience indexing skipped: {e}")
 
         # Step 2: Central Synthesis & 9-Point Red-Flag Auditor Agent (Hybrid: Gemini/Ollama)
         synthesis_result, actual_provider = await llm_router.synthesize_dossier(
@@ -221,9 +232,9 @@ class ResearchOrchestrator:
         prep_data["target_company"] = prep_data.get("target_company") or master_prep.get("target_company") or req.company_name
         prep_data["target_role"] = prep_data.get("target_role") or master_prep.get("target_role") or req.role or "Software Engineer"
         
-        # 1. Grounded Actual Database Questions (from verified historical campus records)
-        thapar_qs = list(campus_data.get("thapar_past_questions") or master_prep.get("thapar_past_questions", []))
-        other_camp_qs = list(master_prep.get("other_campus_questions") or campus_data.get("other_campus_questions", []))
+        # 1. Grounded Actual Database Questions (from verified historical Thapar campus records ONLY)
+        thapar_qs = list(campus_data.get("thapar_past_questions") or [])
+        other_camp_qs = list(campus_data.get("other_campus_questions") or [])
 
         # Specifically ensure Optum previous year questions from data/optum.txt are prioritized
         if "optum" in req.company_name.lower():
@@ -234,10 +245,15 @@ class ResearchOrchestrator:
                     if fq.get("question_title", "").lower() not in existing_titles:
                         thapar_qs.insert(0, fq)
 
-
+        # Strict college segregation: under no circumstances allow other colleges into actual_db_questions
+        other_colleges_kw = ("dtu", "nsut", "nit", "iit", "bits", "coep", "iiit", "vit", "srm", "manipal", "pes")
         actual_db_questions = []
         for q in thapar_qs:
             q_item = dict(q)
+            combined_src = f"{q_item.get('source_drive', '')} {q_item.get('source', '')} {q_item.get('source_name', '')}".lower()
+            if any(col in combined_src for col in other_colleges_kw):
+                other_camp_qs.append(q_item)
+                continue
             q_item["source_type"] = "database"
             q_item["is_database"] = True
             if not q_item.get("source_drive"):
@@ -245,25 +261,28 @@ class ResearchOrchestrator:
                 q_item["source_drive"] = f"TIET Campus Drive ({yr})"
             actual_db_questions.append(q_item)
 
-        for q in other_camp_qs:
-            q_item = dict(q)
-            q_item["source_type"] = "database"
-            q_item["is_database"] = True
-            if not q_item.get("source_drive"):
-                q_item["source_drive"] = "Campus Placement Database"
-            actual_db_questions.append(q_item)
-
         prep_data["actual_database_questions"] = actual_db_questions
-        prep_data["thapar_past_questions"] = thapar_qs
+        prep_data["thapar_past_questions"] = actual_db_questions
         prep_data["other_campus_questions"] = other_camp_qs
         campus_data["actual_database_questions"] = actual_db_questions
-        campus_data["thapar_past_questions"] = thapar_qs
+        campus_data["thapar_past_questions"] = actual_db_questions
         campus_data["other_campus_questions"] = other_camp_qs
         campus_data["additional_details"] = req.additional_context or campus_data.get("additional_details", "")
 
-        # 2. Web Researched Questions (from live GeeksforGeeks, LeetCode Discuss, Glassdoor & AmbitionBox findings)
+        # 2. Web Researched Questions (includes other campus drives and live web archives)
         raw_web_qs = prep_data.get("web_researched_questions") or []
         web_researched_questions = []
+
+        # Keep other colleges' questions strictly in the web-searched section
+        for q in other_camp_qs:
+            q_item = dict(q)
+            q_item["source_type"] = "web_research"
+            q_item["is_database"] = False
+            drive = q_item.get("source_drive") or "Other Campus Placement Drive"
+            q_item["source_name"] = drive
+            if not q_item.get("source_url"):
+                q_item["source_url"] = ""
+            web_researched_questions.append(q_item)
 
         def find_web_source_url(query_str: str, default_domain: str = "geeksforgeeks.org"):
             for r in interview_results:
@@ -389,9 +408,18 @@ class ResearchOrchestrator:
         # Gather all available web sources for source linking
         available_sources = red_flag_results + reddit_results + review_results + interview_results
 
-        red_flags_list = synthesis_result.get("red_flags", [])
+        red_flags_list = list(synthesis_result.get("red_flags") or [])
         if not isinstance(red_flags_list, list):
             red_flags_list = []
+
+        # Prioritize verified institutional red flags (e.g. Razorpay 5% intern conversion rate)
+        known_flags = campus_data.get("known_red_flags", [])
+        if known_flags:
+            existing_findings = {str(f.get("finding", "")).lower() for f in red_flags_list if isinstance(f, dict)}
+            for kf in reversed(known_flags):
+                if str(kf.get("finding", "")).lower() not in existing_findings:
+                    red_flags_list.insert(0, dict(kf))
+
         cleaned_red_flags = []
         for i, rf in enumerate(red_flags_list):
             if isinstance(rf, dict):
