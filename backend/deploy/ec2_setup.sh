@@ -34,27 +34,31 @@ if [ ! -f "$APP_DIR/run_backend.sh" ]; then
     echo "Example: git clone <YOUR_REPO_URL> $APP_DIR"
 fi
 
-# 4. Create virtual environment & install requirements
-echo "[4/6] Setting up Python virtual environment..."
-cd $APP_DIR
-python3 -m venv venv
-./venv/bin/pip install --upgrade pip
-if [ -f "backend/requirements.txt" ]; then
-    ./venv/bin/pip install -r backend/requirements.txt
+# 4. Install Node.js & build TypeScript backend
+echo "[4/6] Installing Node.js & building TypeScript backend..."
+if ! command -v node > /dev/null 2>&1; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
 fi
+
+cd $APP_DIR/backend
+npm install
+npm run build
 
 # 5. Create systemd daemon service
 echo "[5/6] Creating systemd service ($SERVICE_NAME.service)..."
+NODE_BIN=$(which node)
 sudo tee /etc/systemd/system/$SERVICE_NAME.service > /dev/null <<EOF
 [Unit]
-Description=RecruitSage Placement Copilot Backend (FastAPI)
+Description=RecruitSage Placement Copilot Backend (Node.js/TypeScript)
 After=network.target
 
 [Service]
 User=$USER
-WorkingDirectory=$APP_DIR
-Environment="PYTHONPATH=$APP_DIR/backend"
-ExecStart=$APP_DIR/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+WorkingDirectory=$APP_DIR/backend
+Environment=PORT=8000
+Environment=NODE_ENV=production
+ExecStart=$NODE_BIN dist/main.js
 Restart=always
 RestartSec=5
 

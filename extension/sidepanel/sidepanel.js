@@ -40,7 +40,7 @@ function posthogCapture(eventName, properties = {}) {
           distinct_id: distinctId,
           $session_id: currentSessionId,
           $lib: "chrome-extension",
-          version: "1.2.0",
+          version: "1.3.0",
           ...properties
         },
         timestamp: new Date().toISOString()

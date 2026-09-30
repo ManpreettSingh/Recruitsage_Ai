@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# Recruit Copilot Backend Launcher
-cd "$(dirname "$0")"
+# Recruit Copilot Backend Launcher (TypeScript)
+cd "$(dirname "$0")/backend"
 
 echo "=================================================="
-echo "Starting Recruit Copilot Backend (FastAPI)"
+echo "Starting Recruit Copilot Backend (TypeScript / Node.js)"
 echo "   Endpoint: http://localhost:8000"
-echo "   Docs URL: http://localhost:8000/docs"
 echo "=================================================="
 
-PYTHONPATH=backend ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+npm run dev
+
