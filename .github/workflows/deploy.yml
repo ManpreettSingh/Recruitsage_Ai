@@ -59,19 +59,17 @@ jobs:
             ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/opt/recruitsage/
 
       - name: Inject Production Secrets & Restart Service
+        env:
+          ENV_CONTENT: ${{ secrets.ENV_FILE_CONTENT }}
         run: |
-          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} bash -c "'
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "cat > /opt/recruitsage/backend/.env" <<< "$ENV_CONTENT"
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} '
             set -e
             cd /opt/recruitsage/backend
-
-            cat << \"ENV_EOF\" > .env
-${{ secrets.ENV_FILE_CONTENT }}
-ENV_EOF
-
             npm install
             npm run build
             sudo systemctl restart recruitsage
-          '"
+          '
 
       - name: Verify Live Production Health
         run: |
