@@ -91,12 +91,12 @@ Every company drive is automatically scanned against:
 | Layer | Technology |
 |---|---|
 | Chrome Extension | JavaScript, Chrome Extensions API (Manifest V3) |
-| Backend | Python, FastAPI |
+| Backend | Node.js, Express, TypeScript |
 | AI (Cloud) | Google Gemini API |
 | AI (Local) | Ollama — qwen2.5:7b (runs on Apple Metal GPU) |
-| LLM Routing | Custom hybrid router (`llm_router.py`) |
-| Web Search | DuckDuckGo via `search_service.py` |
-| Name Matching | RapidFuzz fuzzy matching |
+| LLM Routing | Custom hybrid router (`llm_router.ts`) |
+| Web Search | DuckDuckGo / Tavily via `search_service.ts` + Cheerio Web Scraper |
+| Name Matching | Custom string matching logic |
 | Data | CSV + JSON flat files |
 
 ---
@@ -134,7 +134,7 @@ Place your datasets in the `data/` folder:
 - `data/campus_placements.json` — historical visit data (see template)
 - `data/question_bank.csv` — export from Google Sheets as CSV
 
-The system uses RapidFuzz to automatically match name variations (e.g., "DE Shaw" vs "D. E. Shaw & Co.").
+The system uses custom matching logic to automatically match name variations (e.g., "DE Shaw" vs "D. E. Shaw & Co.").
 
 ---
 
